@@ -297,8 +297,6 @@ class BaseHarnessAdapter(ABC):
             breaker_error = stdout_task.result()
 
         except asyncio.TimeoutError:
-
-        except asyncio.TimeoutError:
             try:
                 process.kill()
             except ProcessLookupError:

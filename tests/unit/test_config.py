@@ -22,6 +22,7 @@ from neuri.core.config import (
     WorkspaceConfig,
     deep_merge,
     find_project_root,
+    init_project_workspace,
     init_workspace,
     load_config,
 )
@@ -468,6 +469,27 @@ def test_init_workspace_clean_scaffolding(tmp_path: Path) -> None:
     # 6. qa_snapshots/ and skills/ directories exist
     assert paths["qa_snapshots_dir"].is_dir()
     assert paths["skills_dir"].is_dir()
+
+
+def test_init_project_workspace_returns_directory_path(tmp_path: Path) -> None:
+    """Verify init_project_workspace scaffolds and returns .neuri Path.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts returned path is the .neuri directory.
+    """
+    proj: Path = tmp_path / "study_project"
+    proj.mkdir()
+    dot_neuri: Path = init_project_workspace(proj, project_name="sub-02")
+    assert dot_neuri.is_dir()
+    assert dot_neuri.name == ".neuri"
+    assert (dot_neuri / "neuri.toml").is_file()
 
 
 def test_init_workspace_collision_raises_file_exists_error(tmp_path: Path) -> None:

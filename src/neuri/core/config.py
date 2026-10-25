@@ -738,3 +738,48 @@ def init_workspace(
         force=force,
     )
     return result
+
+
+def init_project_workspace(
+    project_root: Path | None = None,
+    project_name: str = "default-neuro-study",
+    force: bool = False,
+) -> Path:
+    """Scaffold a .neuri/ workspace directory and return the directory path.
+
+    Parameters
+    ------------
+    project_root: Path | None
+        Target directory to initialize. Defaults to current working directory.
+    project_name: str
+        Name of the neuroscience project. Defaults to 'default-neuro-study'.
+    force: bool
+        Whether to overwrite existing configuration. Defaults to False.
+
+    Returns
+    --------
+        Path: Path object
+            Path to the scaffolded .neuri workspace directory.
+    """
+    paths: dict[str, Path] = init_workspace(
+        project_root=project_root,
+        project_name=project_name,
+        force=force,
+    )
+    result: Path = paths["neuri_dir"]
+    return result
+
+
+__all__: list[str] = [
+    "BudgetConfig",
+    "ConfigError",
+    "ConfigManager",
+    "HarnessRoutingConfig",
+    "NeuriConfig",
+    "WorkspaceConfig",
+    "deep_merge",
+    "find_project_root",
+    "init_project_workspace",
+    "init_workspace",
+    "load_config",
+]

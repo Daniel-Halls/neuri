@@ -229,7 +229,7 @@ class NeuriChatApp(App[None]):
     }
     .thinking-text {
         color: #94a3b8;
-        font-style: italic;
+        text-style: italic;
         padding: 1;
         background: #1a202c;
     }

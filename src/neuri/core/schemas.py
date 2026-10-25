@@ -1640,3 +1640,22 @@ class SessionEvent(BaseModel):
         default_factory=dict,
         description="Arbitrary typed event payload dictionary",
     )
+
+
+__all__: list[str] = [
+    "ChatRole",
+    "ChatTurn",
+    "ModalityType",
+    "NeuriTaskEnvelope",
+    "NeuriTaskResult",
+    "NiiVueLayerSpec",
+    "NiiVueSceneSpec",
+    "RemoteArtifact",
+    "SanitizedNeuroHeader",
+    "SessionEvent",
+    "SessionEventType",
+    "TaskEdge",
+    "TaskNode",
+    "TaskState",
+    "TelemetryEvent",
+]

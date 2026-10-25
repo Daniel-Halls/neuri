@@ -18,6 +18,7 @@ from neuri.core.config import (
     WorkspaceConfig,
     deep_merge,
     find_project_root,
+    init_project_workspace,
     init_workspace,
     load_config,
 )
@@ -116,6 +117,7 @@ __all__: list[str] = [
     "WorkspaceConfig",
     "deep_merge",
     "find_project_root",
+    "init_project_workspace",
     "init_workspace",
     "load_config",
 ]
