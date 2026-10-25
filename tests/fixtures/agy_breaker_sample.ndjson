@@ -1,0 +1,8 @@
+{"event": "start", "type": "session_start", "harness": "agy", "workflow_id": "wf_neuro_002", "node_id": "node_complex_mcmc", "timestamp": "2026-10-25T14:35:00Z"}
+{"event": "chunk", "type": "chunk", "content": "<thinking>Initializing high-dimensional MCMC sampling for neural mass biophysical model...</thinking>", "timestamp": "2026-10-25T14:35:01Z"}
+{"event": "token_usage", "type": "usage", "input_tokens": 8000, "output_tokens": 2500, "reasoning_tokens": 4000, "cost_usd": 0.12, "timestamp": "2026-10-25T14:35:02Z"}
+{"event": "chunk", "type": "chunk", "content": "<thinking>Sampling diverged. Re-evaluating prior bounds across 100 dimensions iteratively without convergence...</thinking>", "timestamp": "2026-10-25T14:35:03Z"}
+{"event": "token_usage", "type": "usage", "input_tokens": 25000, "output_tokens": 8000, "reasoning_tokens": 15000, "cost_usd": 0.85, "timestamp": "2026-10-25T14:35:04Z"}
+{"event": "chunk", "type": "chunk", "content": "<thinking>Stuck in recurrent loop exploring non-identifiable manifold...</thinking>", "timestamp": "2026-10-25T14:35:05Z"}
+{"event": "token_usage", "type": "usage", "input_tokens": 35000, "output_tokens": 12000, "reasoning_tokens": 22000, "cost_usd": 1.45, "timestamp": "2026-10-25T14:35:06Z"}
+{"event": "circuit_breaker", "type": "circuit_breaker", "breaker_reason": "Node token budget exceeded", "metric": "tokens", "limit": 64000.0, "current": 131500.0, "node_id": "node_complex_mcmc", "timestamp": "2026-10-25T14:35:07Z"}

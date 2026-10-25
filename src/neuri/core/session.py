@@ -1,0 +1,414 @@
+"""UI-Agnostic NeuriSessionEngine for Terminal Chat and Future GUIs.
+
+Decouples all conversational turns, slash-command routing, DAG execution,
+and live telemetry event streaming from presentation frontends, enabling
+seamless pluggability of Textual TUI, Tauri Desktop GUI, or Web interfaces.
+"""
+
+import asyncio
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+import uuid
+
+from neuri.core.blackboard import Blackboard
+from neuri.core.config import NeuriConfig, load_config
+from neuri.core.orchestrator import DAGOrchestrator
+from neuri.core.schemas import (
+    ChatRole,
+    ChatTurn,
+    NeuriTaskResult,
+    SessionEvent,
+    SessionEventType,
+    TaskNode,
+    TelemetryEvent,
+)
+from neuri.core.slash_commands import SlashCommandResult, SlashCommandRouter
+
+
+class NeuriSessionEngine:
+    """Core UI-agnostic session engine managing turns and dispatching events.
+
+    Provides a clean, async event bus architecture. Frontends (such as
+    Textual TUI, WebSockets, or Desktop GUI) attach via event subscription
+    and invoke `submit_user_input` without embedding business logic.
+
+    Parameters
+    ------------
+    workspace_dir: Path | None
+        Target workspace root directory. Defaults to current working directory.
+    config: NeuriConfig | None
+        Loaded Neuri configuration. Defaults to None (loaded automatically).
+    blackboard: Blackboard | None
+        Persistent SQLite WAL Blackboard. Defaults to None (auto-initialized).
+
+    Returns
+    --------
+        NeuriSessionEngine: NeuriSessionEngine instance
+            Constructed session engine.
+    """
+
+    def __init__(
+        self,
+        workspace_dir: Path | None = None,
+        config: NeuriConfig | None = None,
+        blackboard: Blackboard | None = None,
+    ) -> None:
+        """Initialize session engine and instantiate core subsystems.
+
+        Parameters
+        ------------
+        workspace_dir: Path | None
+            Workspace directory. Defaults to Path.cwd().
+        config: NeuriConfig | None
+            Configuration model. Defaults to None.
+        blackboard: Blackboard | None
+            Blackboard store. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes engine state and event listener bus.
+        """
+        self._workspace_dir: Path = (
+            workspace_dir if workspace_dir is not None else Path.cwd()
+        )
+        self._session_id: str = f"sess_{uuid.uuid4().hex[:12]}"
+        self._config: NeuriConfig = (
+            config if config is not None else load_config(self._workspace_dir)
+        )
+
+        db_path: Path = self._resolve_db_path()
+        self._blackboard: Blackboard = (
+            blackboard if blackboard is not None else Blackboard(db_path)
+        )
+        self._orchestrator: DAGOrchestrator = DAGOrchestrator(
+            blackboard=self._blackboard
+        )
+        self._slash_router: SlashCommandRouter = SlashCommandRouter(
+            workspace_dir=self._workspace_dir,
+            config=self._config,
+            blackboard=self._blackboard,
+            orchestrator=self._orchestrator,
+        )
+
+        self._listeners: list[Callable[[SessionEvent], None]] = []
+        self._turns: list[ChatTurn] = []
+
+    def _resolve_db_path(self) -> Path:
+        """Resolve the SQLite database path based on workspace state.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Path: Path object
+                Path to state.db.
+        """
+        ws_dot_dir: Path = self._workspace_dir / ".neuri"
+        if ws_dot_dir.is_dir():
+            path: Path = ws_dot_dir / "state.db"
+            return path
+        fallback: Path = self._workspace_dir / ".neuri_tmp_state.db"
+        return fallback
+
+    @property
+    def session_id(self) -> str:
+        """Active session identifier.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Session ID.
+        """
+        s_id: str = self._session_id
+        return s_id
+
+    @property
+    def turns(self) -> list[ChatTurn]:
+        """Shallow copy of accumulated conversation history turns.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[ChatTurn]: list object
+                Recorded chat turns.
+        """
+        res: list[ChatTurn] = list(self._turns)
+        return res
+
+    def subscribe(self, listener: Callable[[SessionEvent], None]) -> None:
+        """Subscribe a callable listener to receive live SessionEvents.
+
+        Parameters
+        ------------
+        listener: Callable[[SessionEvent], None]
+            Event handler callback.
+
+        Returns
+        --------
+            None: NoneType object
+                Registers listener.
+        """
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def unsubscribe(self, listener: Callable[[SessionEvent], None]) -> None:
+        """Unsubscribe a previously registered event listener.
+
+        Parameters
+        ------------
+        listener: Callable[[SessionEvent], None]
+            Event handler callback to remove.
+
+        Returns
+        --------
+            None: NoneType object
+                Removes listener.
+        """
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+    def emit_event(
+        self, event_type: SessionEventType, payload: dict[str, Any]
+    ) -> SessionEvent:
+        """Emit a typed SessionEvent to all subscribed frontend listeners.
+
+        Parameters
+        ------------
+        event_type: SessionEventType
+            Type category of session event.
+        payload: dict[str, Any]
+            Typed dictionary payload.
+
+        Returns
+        --------
+            SessionEvent: SessionEvent instance
+                The dispatched event object.
+        """
+        ev: SessionEvent = SessionEvent(
+            event_id=f"sev_{uuid.uuid4().hex[:12]}",
+            session_id=self._session_id,
+            event_type=event_type,
+            timestamp=datetime.now(timezone.utc),
+            payload=payload,
+        )
+        for listener in self._listeners:
+            try:
+                listener(ev)
+            except Exception:
+                pass
+        return ev
+
+    async def submit_user_input(self, text: str) -> ChatTurn:
+        """Process user input (slash command or natural language research prompt).
+
+        Parameters
+        ------------
+        text: str
+            Raw user input string.
+
+        Returns
+        --------
+            ChatTurn: ChatTurn instance
+                The resulting assistant or system chat turn.
+        """
+        stripped: str = text.strip()
+
+        # 1. Record user turn
+        user_turn: ChatTurn = ChatTurn(
+            turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+            role=ChatRole.USER,
+            content=stripped,
+        )
+        self._turns.append(user_turn)
+        self.emit_event(
+            SessionEventType.USER_MESSAGE,
+            {"turn_id": user_turn.turn_id, "content": stripped},
+        )
+
+        # 2. Check if slash command
+        if self._slash_router.is_slash_command(stripped):
+            return await self._process_slash_command(stripped)
+
+        # 3. Otherwise, process natural language prompt via DAG orchestrator
+        return await self._process_research_prompt(stripped)
+
+    async def _process_slash_command(self, command_line: str) -> ChatTurn:
+        """Execute slash command and emit result events.
+
+        Parameters
+        ------------
+        command_line: str
+            Slash command string.
+
+        Returns
+        --------
+            ChatTurn: ChatTurn instance
+                Assistant chat turn rendering slash command output.
+        """
+        cmd_res: SlashCommandResult = self._slash_router.execute(command_line)
+
+        # If action requested (e.g. reload_config)
+        if cmd_res.action == "reload_config":
+            self._config = load_config(self._workspace_dir)
+            db_path: Path = self._resolve_db_path()
+            self._blackboard = Blackboard(db_path)
+            self._orchestrator = DAGOrchestrator(blackboard=self._blackboard)
+
+        # Emit status update event
+        self.emit_event(
+            SessionEventType.STATUS_UPDATE,
+            {
+                "command": cmd_res.command,
+                "success": cmd_res.success,
+                "action": cmd_res.action,
+                "data": cmd_res.data,
+            },
+        )
+
+        assistant_turn: ChatTurn = ChatTurn(
+            turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+            role=ChatRole.ASSISTANT,
+            content=cmd_res.markdown_output,
+        )
+        self._turns.append(assistant_turn)
+        return assistant_turn
+
+    async def _process_research_prompt(self, prompt: str) -> ChatTurn:
+        """Decompose prompt into DAG and orchestrate execution.
+
+        Parameters
+        ------------
+        prompt: str
+            Natural language prompt.
+
+        Returns
+        --------
+            ChatTurn: ChatTurn instance
+                Consolidated assistant response turn.
+        """
+        # Step 1: Plan workflow
+        wf_id: str = self._orchestrator.plan_workflow_from_prompt(prompt)
+        self.emit_event(
+            SessionEventType.STATUS_UPDATE,
+            {
+                "status": "workflow_planned",
+                "workflow_id": wf_id,
+                "message": f"Planned research workflow `{wf_id}`.",
+            },
+        )
+
+        # Step 2: Execute ready nodes
+        results: list[NeuriTaskResult] = (
+            await self._orchestrator.execute_ready_nodes(
+                workflow_id=wf_id,
+                on_event=self._forward_telemetry,
+            )
+        )
+
+        # Step 3: Format summary
+        summary_lines: list[str] = [
+            f"### Research Workflow Summary (`{wf_id}`)\n",
+        ]
+        all_success: bool = True
+        total_tokens: int = 0
+        total_cost: float = 0.0
+
+        for res in results:
+            total_tokens += res.total_tokens
+            total_cost += res.cost_usd
+            status_symbol: str = "✓" if res.success else "✗"
+            if not res.success:
+                all_success = False
+            summary_lines.append(
+                f"- **{status_symbol} Node `{res.node_id}`**: {res.summary}"
+            )
+            if res.error_message:
+                summary_lines.append(f"  - *Error:* `{res.error_message}`")
+
+        summary_lines.append(
+            f"\n**Execution Telemetry:** {total_tokens:,} tokens consumed "
+            f"(${total_cost:.4f} USD)"
+        )
+
+        final_content: str = "\n".join(summary_lines)
+        self.emit_event(
+            SessionEventType.WORKFLOW_COMPLETED,
+            {
+                "workflow_id": wf_id,
+                "success": all_success,
+                "total_tokens": total_tokens,
+                "cost_usd": total_cost,
+            },
+        )
+
+        assistant_turn: ChatTurn = ChatTurn(
+            turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+            role=ChatRole.ASSISTANT,
+            content=final_content,
+            workflow_id=wf_id,
+        )
+        self._turns.append(assistant_turn)
+        return assistant_turn
+
+    def _forward_telemetry(self, ev: TelemetryEvent) -> None:
+        """Forward TelemetryEvents from harness stream to frontend.
+
+        Parameters
+        ------------
+        ev: TelemetryEvent
+            Telemetry event emitted by harness.
+
+        Returns
+        --------
+            None: NoneType object
+                Dispatches corresponding session event.
+        """
+        if ev.event_type == "thinking_delta" and ev.thinking_text:
+            self.emit_event(
+                SessionEventType.THINKING_CHUNK,
+                {
+                    "workflow_id": ev.workflow_id,
+                    "node_id": ev.node_id,
+                    "thinking_delta": ev.thinking_text,
+                },
+            )
+        elif ev.event_type == "circuit_breaker":
+            self.emit_event(
+                SessionEventType.CIRCUIT_BREAKER_TRIGGERED,
+                {
+                    "workflow_id": ev.workflow_id,
+                    "node_id": ev.node_id,
+                    "reason": ev.breaker_reason,
+                },
+            )
+
+    def clear_turns(self) -> None:
+        """Clear conversation turns in session memory.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Clears internal turn history.
+        """
+        self._turns.clear()
+
+
+__all__: list[str] = [
+    "NeuriSessionEngine",
+]

@@ -1,0 +1,51 @@
+version: "1.0"
+catalog: neuro_skills_tier0
+skills:
+  - id: bids-standard
+    aliases: [bids_io]
+    name: BIDS & Neuro File IO
+    description: BIDS validation, NIfTI/EDF metadata IO, zero-token PHI sanitization.
+    modalities: [T1w, T2w, bold, dwi, eeg, meg]
+    triggers: [validate BIDS, inspect header, sanitize PHI]
+
+  - id: neuroimaging-preproc
+    aliases: [mri_structural_func]
+    name: Structural MRI Preprocessing
+    description: Brain extraction, FreeSurfer cortical reconstruction, ANTs registration.
+    modalities: [T1w, T2w]
+    triggers: [brain extraction, surface reconstruction, spatial normalization]
+
+  - id: fmri-postproc
+    aliases: [mri_glm]
+    name: Functional MRI & GLM
+    description: Motion correction, nuisance regression, Nilearn GLM modeling.
+    modalities: [bold]
+    triggers: [fMRI preprocessing, GLM analysis, nuisance regression]
+
+  - id: dwi-tractography
+    aliases: [dmri_tractography]
+    name: Diffusion MRI & Tractography
+    description: FSL eddy/topup, MRtrix3 tckgen, DIPY white matter connectome.
+    modalities: [dwi, tractography]
+    triggers: [eddy correction, FOD estimation, tractography]
+
+  - id: eeg-meg-pipeline
+    aliases: [eeg_meg]
+    name: Electrophysiology (EEG/MEG)
+    description: MNE bad channels, ICA artifact removal, source localization.
+    modalities: [eeg, meg, ieeg]
+    triggers: [ICA cleaning, time-frequency, source estimation]
+
+  - id: remote-compute-slurm
+    aliases: [compute_operator]
+    name: Remote HPC & Slurm
+    description: Slurm sbatch generation, GPU queues, sacct job tracking.
+    modalities: [table, report_qa]
+    triggers: [sbatch generation, GPU scheduling, job status]
+
+  - id: scientific-writing-neuro
+    aliases: [scientific_writer]
+    name: Scientific Writer & COBIDAS
+    description: PRISMA literature search, DOI validation, reproducible Methods.
+    modalities: [table, report_qa]
+    triggers: [generate Methods, verify BibTeX, literature synthesis]

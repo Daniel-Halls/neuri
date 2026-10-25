@@ -1,0 +1,9 @@
+{"event": "session.created", "type": "session_start", "harness": "codex", "session_id": "codex_sess_101", "node_id": "node_reg_01", "timestamp": "2026-10-25T14:40:00Z"}
+{"event": "response.output_item.added", "type": "chunk", "content": "<thinking>Aligning subject anatomical T1w to MNI152NLin2009cAsym template space using ANTs SyN registration...</thinking>", "timestamp": "2026-10-25T14:40:01Z"}
+{"event": "response.text.delta", "type": "chunk", "content": "Configuring ANTs SyN registration parameters with mutual information cost metric.", "timestamp": "2026-10-25T14:40:02Z"}
+{"event": "tool.call.started", "type": "tool_call", "tool_name": "ants_registration_syn", "tool_host": "hpc-cluster", "tool_status": "started", "status": "started", "timestamp": "2026-10-25T14:40:03Z"}
+{"event": "tool.call.completed", "type": "tool_call", "tool_name": "ants_registration_syn", "tool_host": "hpc-cluster", "tool_status": "completed", "status": "completed", "duration_ms": 8450, "timestamp": "2026-10-25T14:40:12Z"}
+{"event": "tool.call.started", "type": "tool_call", "tool_name": "generate_qa_snapshot", "tool_host": "localhost", "tool_status": "started", "status": "started", "timestamp": "2026-10-25T14:40:13Z"}
+{"event": "tool.call.completed", "type": "tool_call", "tool_name": "generate_qa_snapshot", "tool_host": "localhost", "tool_status": "completed", "status": "completed", "duration_ms": 420, "timestamp": "2026-10-25T14:40:14Z"}
+{"event": "response.token_usage", "type": "usage", "input_tokens": 3100, "output_tokens": 580, "reasoning_tokens": 920, "cost_usd": 0.028, "timestamp": "2026-10-25T14:40:15Z"}
+{"event": "turn.completed", "type": "result", "node_id": "node_reg_01", "success": true, "exit_code": 0, "summary": "Spatial normalization to MNI152 completed and QA snapshot created.", "total_tokens": 4600, "cost_usd": 0.028, "timestamp": "2026-10-25T14:40:16Z"}
