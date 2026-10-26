@@ -149,3 +149,27 @@ def test_artifact_sync_manager_limits() -> None:
     """
     syncer: ArtifactSyncManager = ArtifactSyncManager()
     assert syncer.MAX_FILE_SIZE_BYTES == 10 * 1024 * 1024
+
+
+def test_remove_host_record(tmp_path: Path) -> None:
+    """Test removing host records from ~/.neuri/hosts.toml.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts host is added and subsequently removed.
+    """
+    hosts_path: Path = tmp_path / "hosts.toml"
+    bootstrapper: RemoteHostBootstrapper = RemoteHostBootstrapper(
+        global_hosts_path=hosts_path
+    )
+    bootstrapper.save_host_record("hpc_node", {"cpus": 64, "memory_gb": 256})
+
+    assert bootstrapper.remove_host_record("nonexistent") is False
+    assert bootstrapper.remove_host_record("hpc_node") is True
+    assert bootstrapper.remove_host_record("hpc_node") is False

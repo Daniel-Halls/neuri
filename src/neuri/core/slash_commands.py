@@ -91,6 +91,8 @@ class SlashCommandRouter:
         "/machines",
         "/cluster",
         "/jobs",
+        "/shell",
+        "/sh",
         "/view",
         "/retry",
         "/cancel",
@@ -195,6 +197,8 @@ class SlashCommandRouter:
             return self._handle_machines()
         elif cmd == "/jobs":
             return self._handle_jobs(args)
+        elif cmd in ("/shell", "/sh"):
+            return self._handle_shell(args)
         elif cmd == "/view":
             return self._handle_view(args)
         elif cmd == "/retry":
@@ -622,12 +626,61 @@ class SlashCommandRouter:
                     data={"error": str(err)},
                 )
 
+        if subcmd in ("remove", "rm", "delete"):
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/remote",
+                    success=False,
+                    markdown_output="Usage: `/remote remove <host_alias>`",
+                )
+            target_host: str = args[1].strip()
+            bootstrapper: RemoteHostBootstrapper = RemoteHostBootstrapper()
+            removed_from_hosts: bool = bootstrapper.remove_host_record(
+                target_host
+            )
+
+            if removed_from_hosts:
+                msg: str = (
+                    f"### Host Removed: `{target_host}`\n\n"
+                    f"Successfully removed `{target_host}` from "
+                    "`~/.neuri/hosts.toml`.\n\n"
+                    "> [!NOTE]\n"
+                    f"> If `{target_host}` is also declared in your "
+                    "`.neuri/config.toml` under `[[remote_hosts]]`, remove that "
+                    "entry to completely deregister it."
+                )
+                return SlashCommandResult(
+                    command="/remote",
+                    success=True,
+                    markdown_output=msg,
+                    data={
+                        "removed_host": target_host,
+                        "removed_from_hosts": True,
+                    },
+                )
+            else:
+                msg = (
+                    f"Host `{target_host}` was not found in "
+                    "`~/.neuri/hosts.toml`.\n"
+                    "Use `/remote list` or `/machines` to view configured hosts."
+                )
+                return SlashCommandResult(
+                    command="/remote",
+                    success=False,
+                    markdown_output=msg,
+                    data={
+                        "removed_host": target_host,
+                        "removed_from_hosts": False,
+                    },
+                )
+
         return SlashCommandResult(
             command="/remote",
             success=False,
             markdown_output=(
                 f"Unknown remote subcommand `{subcmd}`. "
-                "Use `/remote list` or `/remote bootstrap <host>`."
+                "Use `/remote list`, `/remote bootstrap <host>`, or "
+                "`/remote remove <host>`."
             ),
         )
 
@@ -806,6 +859,66 @@ class SlashCommandRouter:
             ),
         )
 
+    def _handle_shell(self, args: list[str]) -> SlashCommandResult:
+        """Execute a shell command locally or on a remote machine.
+
+        Parameters
+        ------------
+        args: list[str]
+            Command arguments, optionally prefixed with machine alias.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Formatted shell output card.
+        """
+        if not args:
+            return SlashCommandResult(
+                command="/shell",
+                success=False,
+                markdown_output=(
+                    "Usage: `/shell <command>` or `/shell <host> <command>`"
+                ),
+            )
+
+        from neuri.remote.shell_executor import (
+            ShellCommandExecutor,
+            ShellExecutionResult,
+        )
+
+        executor: ShellCommandExecutor = ShellCommandExecutor(
+            workspace_dir=self._workspace_dir
+        )
+        available_hosts: list[str] = executor.get_available_hosts(
+            config=self._config
+        )
+
+        target_host: str = "localhost"
+        cmd_tokens: list[str] = args
+
+        if len(args) >= 2 and args[0] in available_hosts:
+            target_host = args[0]
+            cmd_tokens = args[1:]
+
+        command_str: str = " ".join(cmd_tokens)
+        res: ShellExecutionResult = self._run_sync_coroutine(
+            executor.execute(command=command_str, host=target_host)
+        )
+        card_md: str = executor.format_markdown_card(res)
+
+        result: SlashCommandResult = SlashCommandResult(
+            command="/shell",
+            success=(res.exit_code == 0),
+            markdown_output=card_md,
+            data={
+                "host": res.host,
+                "command": res.command,
+                "exit_code": res.exit_code,
+                "duration_seconds": res.duration_seconds,
+            },
+        )
+        return result
+
     def _handle_view(self, args: list[str]) -> SlashCommandResult:
         """Launch or inspect local NiiVue WebGL2 visualization bridge.
 
@@ -964,8 +1077,9 @@ class SlashCommandRouter:
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
             "| `/status` | View workspace status, blackboard stats, and token usage |\n"
             "| `/harness` | View or update agent role-to-harness routing |\n"
-            "| `/remote` | View or bootstrap remote compute hosts |\n"
+            "| `/remote` | View, bootstrap, or remove remote compute hosts |\n"
             "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
+            "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"
             "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
             "| `/retry <node_id>` | Resume a node paused in WAITING_OPERATOR |\n"
             "| `/cancel <node_id>` | Cancel a paused node in WAITING_OPERATOR |\n"

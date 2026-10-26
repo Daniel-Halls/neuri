@@ -199,3 +199,99 @@ async def test_textual_chat_app_action_clear(tmp_path: Path) -> None:
         app.action_clear_screen()
         await pilot.pause()
         assert len(list(scroll_area.children)) == 0
+
+
+@pytest.mark.asyncio
+async def test_textual_chat_app_toggle_shell_mode(tmp_path: Path) -> None:
+    """Test pressing ctrl+s toggles shell mode and updates input styling.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts mode toggling and widget class updates.
+    """
+    app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        assert app.is_shell_mode is False
+
+        await pilot.press("ctrl+s")
+        assert app.is_shell_mode is True
+
+        selector = app.query_one("#machine-selector-bar")
+        assert "hidden" not in selector.classes
+
+        input_box = app.query_one("#prompt-input")
+        assert "shell-mode" in input_box.classes
+
+        await pilot.press("ctrl+s")
+        assert app.is_shell_mode is False
+        assert "hidden" in selector.classes
+
+
+@pytest.mark.asyncio
+async def test_textual_chat_app_machine_selection(tmp_path: Path) -> None:
+    """Test cycling through target machines using next and prev actions.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts selected machine updates cyclically.
+    """
+    app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
+    async with app.run_test():
+        app.action_toggle_shell_mode()
+        app._available_machines = ["localhost", "cluster_node", "gpu_host"]
+        app._selected_machine_index = 0
+        assert app.selected_machine == "localhost"
+
+        app.action_next_machine()
+        assert app.selected_machine == "cluster_node"
+
+        app.action_next_machine()
+        assert app.selected_machine == "gpu_host"
+
+        app.action_next_machine()
+        assert app.selected_machine == "localhost"
+
+        app.action_prev_machine()
+        assert app.selected_machine == "gpu_host"
+
+
+@pytest.mark.asyncio
+async def test_textual_chat_app_submit_shell_command(tmp_path: Path) -> None:
+    """Test executing a shell command in shell mode mounts output card.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts command execution and result card mounted on canvas.
+    """
+    app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app.action_toggle_shell_mode()
+        assert app.is_shell_mode is True
+
+        input_widget = app.query_one("#prompt-input")
+        input_widget.value = "echo 'hello textual shell'"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        scroll_area = app.query_one("#chat-scroll")
+        children = list(scroll_area.children)
+        # welcome card + user shell turn + assistant output turn
+        assert len(children) >= 3

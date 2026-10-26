@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.text import Text
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -28,6 +29,10 @@ from textual.widgets import (
 
 from neuri.core.schemas import ChatRole, ChatTurn, SessionEvent, SessionEventType
 from neuri.core.session import NeuriSessionEngine
+from neuri.remote.shell_executor import (
+    ShellCommandExecutor,
+    ShellExecutionResult,
+)
 
 
 class MessageCard(Static):
@@ -200,6 +205,126 @@ class ComputeSidebar(VerticalScroll):
         self._content.update(txt)
 
 
+class MachineSelectorBar(Static):
+    """Bar displaying active target machine and selector pills for shell mode.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        MachineSelectorBar: MachineSelectorBar instance
+            Constructed selector bar widget.
+    """
+
+    def __init__(self) -> None:
+        """Initialize machine selector bar.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        super().__init__(id="machine-selector-bar", classes="hidden")
+        self._machines: list[str] = ["localhost"]
+        self._current_index: int = 0
+
+    def update_selection(
+        self, machines: list[str], current_index: int
+    ) -> None:
+        """Update machine list and active selection highlighting.
+
+        Parameters
+        ------------
+        machines: list[str]
+            List of available machine aliases.
+        current_index: int
+            Zero-based index of the currently selected machine.
+
+        Returns
+        --------
+            None: NoneType object
+                Renders updated rich text with highlighted machine pill.
+        """
+        self._machines = machines if machines else ["localhost"]
+        self._current_index = max(
+            0, min(current_index, len(self._machines) - 1)
+        )
+
+        txt: Text = Text()
+        txt.append("⚡ SHELL ", style="bold green")
+        txt.append("│ Target: ", style="bold cyan")
+        selected_name: str = self._machines[self._current_index]
+        txt.append(f"◀ {selected_name} ▶ ", style="bold yellow")
+        txt.append("│ Machines: ", style="dim")
+
+        for idx, m in enumerate(self._machines):
+            if idx == self._current_index:
+                txt.append(f" [● {m}] ", style="bold green on #14532d")
+            else:
+                txt.append(f" ○ {m} ", style="dim white")
+
+        txt.append(
+            " │ (←/→ or ↑/↓: select │ Ctrl+S: exit)", style="italic cyan"
+        )
+        self.update(txt)
+
+
+class PromptInput(Input):
+    """Custom input widget providing shell mode arrow-key machine switching.
+
+    Parameters
+    ------------
+    placeholder: str
+        Initial placeholder text. Defaults to empty string.
+    id: str | None
+        Widget ID. Defaults to None.
+
+    Returns
+    --------
+        PromptInput: PromptInput instance
+            Constructed prompt input widget.
+    """
+
+    async def _on_key(self, event: events.Key) -> None:
+        """Handle key events to allow arrow-key machine navigation in shell mode.
+
+        Parameters
+        ------------
+        event: events.Key
+            Key event data.
+
+        Returns
+        --------
+            None: NoneType object
+                Navigates machines or delegates to standard text input.
+        """
+        chat_app: Any = self.app
+        if chat_app is not None and getattr(chat_app, "is_shell_mode", False):
+            if event.key in ("up", "down"):
+                event.prevent_default()
+                event.stop()
+                if event.key == "up":
+                    chat_app.action_prev_machine()
+                else:
+                    chat_app.action_next_machine()
+                return
+            elif event.key in ("left", "right") and not self.value:
+                event.prevent_default()
+                event.stop()
+                if event.key == "left":
+                    chat_app.action_prev_machine()
+                else:
+                    chat_app.action_next_machine()
+                return
+        await super()._on_key(event)
+
+
 class TelemetryBar(Static):
     """Status bar widget displaying live tokens, cost, and harness routing.
 
@@ -331,6 +456,16 @@ class NeuriChatApp(App[None]):
         padding: 0 1 1 1;
         background: #12141a;
     }
+    #machine-selector-bar {
+        height: 1;
+        margin-bottom: 0;
+        padding: 0 1;
+        background: #1e293b;
+        color: #94a3b8;
+    }
+    #machine-selector-bar.hidden {
+        display: none;
+    }
     Input {
         border: tall #3b82f6;
         background: #1e2430;
@@ -338,6 +473,12 @@ class NeuriChatApp(App[None]):
     }
     Input:focus {
         border: tall #60a5fa;
+    }
+    Input.shell-mode {
+        border: tall #10b981;
+    }
+    Input.shell-mode:focus {
+        border: tall #34d399;
     }
     #telemetry-bar {
         dock: bottom;
@@ -377,6 +518,7 @@ class NeuriChatApp(App[None]):
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_screen", "Clear", show=True),
+        Binding("ctrl+s", "toggle_shell_mode", "Shell Mode", show=True),
         Binding("f2", "toggle_sidebar", "Machines", show=True),
         Binding("ctrl+b", "toggle_sidebar", "Machines", show=False),
     ]
@@ -411,6 +553,13 @@ class NeuriChatApp(App[None]):
         )
         self._telemetry_bar: TelemetryBar = TelemetryBar()
         self._compute_sidebar: ComputeSidebar = ComputeSidebar()
+        self._is_shell_mode: bool = False
+        self._available_machines: list[str] = ["localhost"]
+        self._selected_machine_index: int = 0
+        self._shell_executor: ShellCommandExecutor = ShellCommandExecutor(
+            workspace_dir=self._workspace_dir
+        )
+        self._machine_selector_bar: MachineSelectorBar = MachineSelectorBar()
         self._engine.subscribe(self._handle_session_event)
 
     @property
@@ -454,7 +603,8 @@ class NeuriChatApp(App[None]):
             yield self._compute_sidebar
 
         with Container(id="input-container"):
-            yield Input(
+            yield self._machine_selector_bar
+            yield PromptInput(
                 placeholder=(
                     "Type a research prompt or /command (/init, /skills, "
                     "/machines, /status, /help, /exit)..."
@@ -477,7 +627,9 @@ class NeuriChatApp(App[None]):
             None: NoneType object
                 Focuses input widget, posts welcome card, and starts monitors.
         """
-        input_widget: Input = self.query_one("#prompt-input", Input)
+        input_widget: PromptInput = self.query_one(
+            "#prompt-input", PromptInput
+        )
         input_widget.focus()
 
         # Mount initial welcome card
@@ -487,6 +639,8 @@ class NeuriChatApp(App[None]):
             content=(
                 "**Welcome to Neuri v0.1.0** — Vendor-Agnostic Neuroscience "
                 "Meta-Harness.\n\n"
+                "- Press `Ctrl+S` to toggle Shell Mode (local & remote).\n"
+                "- In Shell Mode, use `←`/`→` or `↑`/`↓` to select machine.\n"
                 "- Press `F2` to toggle the attached Machines & Compute sidebar.\n"
                 "- Type `/machines` to view cluster and remote compute node status.\n"
                 "- Type `/skills` to explore available neuroscience skill packs.\n"
@@ -518,6 +672,146 @@ class NeuriChatApp(App[None]):
                 Toggles the hidden CSS class on the sidebar widget.
         """
         self._compute_sidebar.toggle_class("hidden")
+
+    @property
+    def is_shell_mode(self) -> bool:
+        """Check if application is currently in shell execution mode.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if shell mode is active.
+        """
+        return self._is_shell_mode
+
+    @property
+    def selected_machine(self) -> str:
+        """Return the currently selected machine alias.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Active machine alias.
+        """
+        if (
+            self._available_machines
+            and 0 <= self._selected_machine_index < len(self._available_machines)
+        ):
+            return self._available_machines[self._selected_machine_index]
+        return "localhost"
+
+    def action_toggle_shell_mode(self) -> None:
+        """Toggle between natural language prompt mode and shell mode.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Toggles shell mode state and updates input UI styling.
+        """
+        self._is_shell_mode = not self._is_shell_mode
+        if self._is_shell_mode:
+            self._available_machines = self._shell_executor.get_available_hosts(
+                config=self._engine.config
+            )
+            self._selected_machine_index = 0
+        self._update_shell_mode_ui()
+
+    def action_next_machine(self) -> None:
+        """Select the next available machine in shell mode.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Cycles selected machine index forward.
+        """
+        if not self._is_shell_mode or not self._available_machines:
+            return
+        self._selected_machine_index = (
+            self._selected_machine_index + 1
+        ) % len(self._available_machines)
+        self._update_shell_mode_ui()
+
+    def action_prev_machine(self) -> None:
+        """Select the previous available machine in shell mode.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Cycles selected machine index backward.
+        """
+        if not self._is_shell_mode or not self._available_machines:
+            return
+        self._selected_machine_index = (
+            self._selected_machine_index - 1
+        ) % len(self._available_machines)
+        self._update_shell_mode_ui()
+
+    def _update_shell_mode_ui(self) -> None:
+        """Update input widget styling and machine selector bar visibility.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Synchronizes UI components with shell mode state.
+        """
+        input_widget: PromptInput = self.query_one(
+            "#prompt-input", PromptInput
+        )
+        selector_bar: MachineSelectorBar = self._machine_selector_bar
+
+        if self._is_shell_mode:
+            if not self._available_machines:
+                self._available_machines = ["localhost"]
+            self._selected_machine_index = min(
+                self._selected_machine_index,
+                max(0, len(self._available_machines) - 1),
+            )
+            active_host: str = self.selected_machine
+
+            selector_bar.remove_class("hidden")
+            selector_bar.update_selection(
+                machines=self._available_machines,
+                current_index=self._selected_machine_index,
+            )
+
+            input_widget.add_class("shell-mode")
+            input_widget.placeholder = (
+                f"Enter shell command for [{active_host}] "
+                "($ ls -la, nvidia-smi, git status)..."
+            )
+            self._telemetry_bar.status_text = f"Shell [{active_host}]"
+        else:
+            selector_bar.add_class("hidden")
+            input_widget.remove_class("shell-mode")
+            input_widget.placeholder = (
+                "Type a research prompt or /command (/init, /skills, "
+                "/machines, /status, /help, /exit)..."
+            )
+            self._telemetry_bar.status_text = "Ready"
 
     async def refresh_compute_machines(self) -> None:
         """Query attached machines and update the compute sidebar widget.
@@ -586,6 +880,45 @@ class NeuriChatApp(App[None]):
         scroll_area: VerticalScroll = self.query_one(
             "#chat-scroll", VerticalScroll
         )
+
+        if self._is_shell_mode:
+            target_host: str = self.selected_machine
+            self._telemetry_bar.status_text = f"Running on {target_host}..."
+
+            user_sh_turn: ChatTurn = ChatTurn(
+                turn_id=f"u_sh_{int(datetime.now(timezone.utc).timestamp())}",
+                role=ChatRole.USER,
+                content=f"**[{target_host}]** `$ {val}`",
+            )
+            await scroll_area.mount(MessageCard(user_sh_turn))
+            scroll_area.scroll_end(animate=False)
+
+            try:
+                res: ShellExecutionResult = await self._shell_executor.execute(
+                    command=val, host=target_host
+                )
+                card_md: str = self._shell_executor.format_markdown_card(res)
+                assistant_sh_turn: ChatTurn = ChatTurn(
+                    turn_id=f"a_sh_{int(datetime.now(timezone.utc).timestamp())}",
+                    role=ChatRole.ASSISTANT,
+                    content=card_md,
+                )
+                await scroll_area.mount(MessageCard(assistant_sh_turn))
+                scroll_area.scroll_end(animate=False)
+            except Exception as exc:
+                err_sh_turn: ChatTurn = ChatTurn(
+                    turn_id=f"err_{int(datetime.now(timezone.utc).timestamp())}",
+                    role=ChatRole.ASSISTANT,
+                    content=f"**Shell Execution Error:** `{exc}`",
+                )
+                await scroll_area.mount(MessageCard(err_sh_turn))
+                scroll_area.scroll_end(animate=False)
+            finally:
+                input_widget.disabled = False
+                input_widget.focus()
+                self._telemetry_bar.status_text = f"Shell [{target_host}]"
+            return
+
         user_turn: ChatTurn = ChatTurn(
             turn_id=f"u_{int(datetime.now(timezone.utc).timestamp())}",
             role=ChatRole.USER,
@@ -676,7 +1009,9 @@ class NeuriChatApp(App[None]):
 
 __all__: list[str] = [
     "ComputeSidebar",
+    "MachineSelectorBar",
     "MessageCard",
     "NeuriChatApp",
+    "PromptInput",
     "TelemetryBar",
 ]

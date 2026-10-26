@@ -167,6 +167,14 @@ class PathResolver:
             Path: Path object
                 Filesystem path to the root rules directory.
         """
+        installed: Path = Path.home() / ".neuri" / "rules"
+        if installed.is_dir():
+            return installed
+
+        base_rules: Path = cls.get_base_template_dir() / "rules"
+        if base_rules.is_dir():
+            return base_rules
+
         repo_root: Path = cls.get_repo_root()
         rules_dir: Path = repo_root / "rules"
         return rules_dir

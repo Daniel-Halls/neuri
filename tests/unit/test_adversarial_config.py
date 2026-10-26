@@ -13,6 +13,7 @@ import pytest
 import tomli_w
 import yaml
 
+from neuri.core.paths import PathResolver
 from neuri.core.config import (
     BudgetConfig,
     ConfigError,
@@ -549,11 +550,7 @@ def test_skills_catalog_token_and_word_count_limits() -> None:
         None: NoneType object
             Asserts word count < 250 and character count < 2500.
     """
-    catalog_path: Path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "skills"
-        / "index.yaml"
-    )
+    catalog_path: Path = PathResolver.get_default_skills_index()
     assert catalog_path.is_file(), f"Catalog not found at {catalog_path}"
 
     text: str = catalog_path.read_text(encoding="utf-8")
@@ -587,11 +584,7 @@ def test_skills_catalog_structure_and_completeness() -> None:
         None: NoneType object
             Asserts presence and required schema fields for 7 skill packs.
     """
-    catalog_path: Path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "skills"
-        / "index.yaml"
-    )
+    catalog_path: Path = PathResolver.get_default_skills_index()
     data: dict[str, Any] = yaml.safe_load(
         catalog_path.read_text(encoding="utf-8")
     )

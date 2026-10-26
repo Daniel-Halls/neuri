@@ -10,6 +10,7 @@ import re
 from typing import Any
 import yaml
 
+from neuri.core.paths import PathResolver
 from neuri.core.schemas import ModalityType
 
 
@@ -61,11 +62,7 @@ class TestSkillsCatalogIndex:
             Path: Path object
                 Absolute filesystem path to the skills index file.
         """
-        catalog_path: Path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "skills"
-            / "index.yaml"
-        )
+        catalog_path: Path = PathResolver.get_default_skills_index()
         return catalog_path
 
     def load_catalog_data(self) -> dict[str, Any]:

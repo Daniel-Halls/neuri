@@ -27,6 +27,7 @@ from neuri.core.schemas import (
 )
 from neuri.core.session import NeuriSessionEngine
 from neuri.core.slash_commands import SlashCommandResult, SlashCommandRouter
+from neuri.remote.bootstrap import RemoteHostBootstrapper
 
 
 @pytest.fixture
@@ -239,6 +240,56 @@ def test_slash_command_harness(
     )
     assert update_res.success is True
     assert "Updated harness routing" in update_res.markdown_output
+
+
+def test_slash_command_remote_remove(
+    slash_router: SlashCommandRouter,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test /remote list and /remote remove slash commands.
+
+    Parameters
+    ------------
+    slash_router: SlashCommandRouter
+        Active router fixture.
+    tmp_path: Path
+        Pytest temporary directory fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts host listing and removal via slash commands.
+    """
+    fake_home: Path = tmp_path / "fake_home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    hosts_file: Path = fake_home / ".neuri" / "hosts.toml"
+    hosts_file.parent.mkdir(parents=True, exist_ok=True)
+    bootstrapper: RemoteHostBootstrapper = RemoteHostBootstrapper(
+        global_hosts_path=hosts_file
+    )
+    bootstrapper.save_host_record("hpc_worker", {"cpus": 32})
+
+    list_res: SlashCommandResult = slash_router.execute("/remote list")
+    assert list_res.success is True
+
+    # Test removing non-existent host
+    fail_res: SlashCommandResult = slash_router.execute(
+        "/remote remove invalid_host"
+    )
+    assert fail_res.success is False
+    assert "not found" in fail_res.markdown_output
+
+    # Test removing existing host
+    ok_res: SlashCommandResult = slash_router.execute(
+        "/remote remove hpc_worker"
+    )
+    assert ok_res.success is True
+    assert "Host Removed: `hpc_worker`" in ok_res.markdown_output
 
 
 def test_slash_command_clear(

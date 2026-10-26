@@ -169,6 +169,42 @@ class RemoteHostBootstrapper:
         with open(self._hosts_path, "wb") as fh:
             tomli_w.dump(existing, fh)
 
+    def remove_host_record(self, host: str) -> bool:
+        """Remove a host alias and its capabilities from ~/.neuri/hosts.toml.
+
+        Parameters
+        ------------
+        host: str
+            Host identifier key to remove.
+
+        Returns
+        --------
+            bool: boolean object
+                True if host record was found and deleted, False otherwise.
+        """
+        existing: dict[str, Any] = {}
+        if self._hosts_path.is_file():
+            try:
+                import tomllib
+
+                existing = tomllib.loads(
+                    self._hosts_path.read_text(encoding="utf-8")
+                )
+            except Exception:
+                existing = {}
+
+        hosts_dict: dict[str, Any] = existing.get("hosts", {})
+        if host not in hosts_dict:
+            return False
+
+        del hosts_dict[host]
+        existing["hosts"] = hosts_dict
+
+        with open(self._hosts_path, "wb") as fh:
+            tomli_w.dump(existing, fh)
+
+        return True
+
 
 __all__: list[str] = [
     "RemoteHostBootstrapper",

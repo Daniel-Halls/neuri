@@ -306,6 +306,52 @@ class NeuriSessionEngine:
         self._turns.append(assistant_turn)
         return assistant_turn
 
+    async def execute_shell_command(
+        self, command: str, host: str = "localhost"
+    ) -> ChatTurn:
+        """Execute a shell command locally or remotely and append to session.
+
+        Parameters
+        ------------
+        command: str
+            Shell command string to execute.
+        host: str
+            Target machine alias ('localhost' or remote host).
+            Defaults to 'localhost'.
+
+        Returns
+        --------
+            ChatTurn: ChatTurn instance
+                Assistant chat turn containing formatted command output.
+        """
+        from neuri.remote.shell_executor import (
+            ShellCommandExecutor,
+            ShellExecutionResult,
+        )
+
+        user_turn: ChatTurn = ChatTurn(
+            turn_id=f"u_sh_{uuid.uuid4().hex[:8]}",
+            role=ChatRole.USER,
+            content=f"**[{host}]** `$ {command}`",
+        )
+        self._turns.append(user_turn)
+
+        executor: ShellCommandExecutor = ShellCommandExecutor(
+            workspace_dir=self._workspace_dir
+        )
+        res: ShellExecutionResult = await executor.execute(
+            command=command, host=host
+        )
+        card_md: str = executor.format_markdown_card(res)
+
+        assistant_turn: ChatTurn = ChatTurn(
+            turn_id=f"a_sh_{uuid.uuid4().hex[:8]}",
+            role=ChatRole.ASSISTANT,
+            content=card_md,
+        )
+        self._turns.append(assistant_turn)
+        return assistant_turn
+
     async def _process_research_prompt(self, prompt: str) -> ChatTurn:
         """Decompose prompt into DAG and orchestrate execution.
 
