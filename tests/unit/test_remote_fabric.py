@@ -50,8 +50,100 @@ def test_ssh_pool_socket_path_generation() -> None:
     """
     pool: SSHControlMasterPool = SSHControlMasterPool()
     pattern: str = pool.get_control_path_pattern()
-    assert "neuri_mux_%h_%p_%r" in pattern
+    assert "neuri_mux_%C" in pattern
     assert ".ssh" in pattern
+
+
+def test_ssh_pool_build_ssh_args_includes_low_latency_flags() -> None:
+    """Test SSHControlMasterPool injects low-latency performance options.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts GSSAPI, IPQoS, ciphers, and compression flags are present.
+    """
+    pool: SSHControlMasterPool = SSHControlMasterPool()
+    args: list[str] = pool.build_ssh_args("gpu_worker_01")
+
+    assert "ssh" in args
+    assert "gpu_worker_01" in args
+    assert "GSSAPIAuthentication=no" in args
+    assert "IPQoS=lowdelay" in args
+    assert "ForwardX11=no" in args
+    assert "Compression=no" in args
+    assert any("Ciphers=" in a for a in args)
+
+
+@pytest.mark.asyncio
+async def test_ssh_pool_warm_connection_check_and_exec() -> None:
+    """Test warm_connection handles active socket and new background master.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts warm_connection logic under mock process execution.
+    """
+    pool: SSHControlMasterPool = SSHControlMasterPool()
+
+    # Case 1: Check passes (already warm)
+    mock_proc_ok: AsyncMock = AsyncMock()
+    mock_proc_ok.returncode = 0
+    mock_proc_ok.wait.return_value = 0
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_proc_ok):
+        res_ok: bool = await pool.warm_connection("active_node")
+        assert res_ok is True
+
+    # Case 2: Check fails then warm command establishes master
+    mock_proc_fail: AsyncMock = AsyncMock()
+    mock_proc_fail.returncode = 1
+    mock_proc_fail.wait.return_value = 1
+
+    with patch(
+        "asyncio.create_subprocess_exec",
+        side_effect=[mock_proc_fail, mock_proc_ok],
+    ):
+        res_established: bool = await pool.warm_connection("cold_node")
+        assert res_established is True
+
+
+@pytest.mark.asyncio
+async def test_shell_executor_warm_host() -> None:
+    """Test ShellCommandExecutor warm_host behavior for local and remote hosts.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts localhost returns True and remote invokes pool.warm_connection.
+    """
+    from neuri.remote.shell_executor import ShellCommandExecutor
+
+    mock_pool: AsyncMock = AsyncMock(spec=SSHControlMasterPool)
+    mock_pool.warm_connection.return_value = True
+
+    executor: ShellCommandExecutor = ShellCommandExecutor(ssh_pool=mock_pool)
+
+    # Localhost should return True immediately without calling pool
+    is_local_warm: bool = await executor.warm_host("localhost")
+    assert is_local_warm is True
+    mock_pool.warm_connection.assert_not_called()
+
+    # Remote host should delegate to ssh_pool.warm_connection
+    is_remote_warm: bool = await executor.warm_host("cluster_node")
+    assert is_remote_warm is True
+    mock_pool.warm_connection.assert_called_once_with("cluster_node")
 
 
 def test_slurm_wrapper_script_generation() -> None:

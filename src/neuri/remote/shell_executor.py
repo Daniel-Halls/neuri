@@ -149,6 +149,25 @@ class ShellCommandExecutor:
 
         return hosts
 
+    async def warm_host(self, host: str) -> bool:
+        """Pre-warm connection to a host if it is a remote target.
+
+        Parameters
+        ------------
+        host: str
+            Host name or alias to pre-warm.
+
+        Returns
+        --------
+            bool: boolean object
+                True if local or if remote connection is warm, False otherwise.
+        """
+        clean_host: str = host.strip() if host.strip() else "localhost"
+        if self.is_local(clean_host):
+            return True
+        warmed: bool = await self._ssh_pool.warm_connection(clean_host)
+        return warmed
+
     async def execute(
         self,
         command: str,

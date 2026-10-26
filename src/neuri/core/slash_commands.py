@@ -93,6 +93,7 @@ class SlashCommandRouter:
         "/jobs",
         "/shell",
         "/sh",
+        "/theme",
         "/view",
         "/retry",
         "/cancel",
@@ -199,6 +200,8 @@ class SlashCommandRouter:
             return self._handle_jobs(args)
         elif cmd in ("/shell", "/sh"):
             return self._handle_shell(args)
+        elif cmd == "/theme":
+            return self._handle_theme(args)
         elif cmd == "/view":
             return self._handle_view(args)
         elif cmd == "/retry":
@@ -919,6 +922,97 @@ class SlashCommandRouter:
         )
         return result
 
+    def _handle_theme(self, args: list[str]) -> SlashCommandResult:
+        """List available color themes or activate a selected theme.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional theme name argument.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Theme listing or activation confirmation card.
+        """
+        from neuri.ui.theme import NeuriTheme, NeuriThemeManager
+
+        mgr: NeuriThemeManager = NeuriThemeManager(
+            workspace_dir=self._workspace_dir
+        )
+        available_themes: list[NeuriTheme] = mgr.list_available_themes()
+        active_theme_name: str = mgr.get_active_theme_name()
+
+        if not args or args[0].lower() in ("list", "ls"):
+            rows: list[str] = [
+                "| Theme Name | Style | Description | Status |",
+                "| :--- | :--- | :--- | :--- |",
+            ]
+            for t in available_themes:
+                is_active: bool = (
+                    t.name.lower().replace("-", "_")
+                    == active_theme_name.lower().replace("-", "_")
+                )
+                status_str: str = "● **Active**" if is_active else "○"
+                rows.append(
+                    f"| `{t.name}` | {t.display_name} | "
+                    f"{t.description} | {status_str} |"
+                )
+
+            md: str = (
+                "### Neuri Visual Color Themes\n\n"
+                + "\n".join(rows)
+                + "\n\n"
+                "- Use `/theme <name>` to switch themes "
+                "(e.g. `/theme high_contrast`, `/theme dark`).\n"
+                "- Themes are stored in `~/.neuri/themes/` (TOML format)."
+            )
+            return SlashCommandResult(
+                command="/theme",
+                success=True,
+                markdown_output=md,
+                data={
+                    "themes": [t.name for t in available_themes],
+                    "active": active_theme_name,
+                },
+            )
+
+        chosen: str = args[0].lower().replace("-", "_").strip()
+        matched: NeuriTheme | None = None
+        for t in available_themes:
+            if t.name.lower().replace("-", "_") == chosen:
+                matched = t
+                break
+
+        if matched is None:
+            avail_str: str = ", ".join(f"`{t.name}`" for t in available_themes)
+            return SlashCommandResult(
+                command="/theme",
+                success=False,
+                markdown_output=(
+                    f"Theme `{args[0]}` not found.\n\n"
+                    f"Available themes: {avail_str}\n"
+                    "Use `/theme` to view full catalog."
+                ),
+            )
+
+        mgr.set_active_theme(matched.name)
+        confirm_md: str = (
+            f"### Theme Activated: `{matched.display_name}`\n\n"
+            f"- **Identifier:** `{matched.name}`\n"
+            f"- **Description:** {matched.description}\n"
+            f"- **Background:** `{matched.background}`  │  "
+            f"**Foreground:** `{matched.foreground}`\n\n"
+            "Theme preference saved to `~/.neuri/config.toml`."
+        )
+        return SlashCommandResult(
+            command="/theme",
+            success=True,
+            markdown_output=confirm_md,
+            action="change_theme",
+            data={"theme_name": matched.name},
+        )
+
     def _handle_view(self, args: list[str]) -> SlashCommandResult:
         """Launch or inspect local NiiVue WebGL2 visualization bridge.
 
@@ -1080,6 +1174,7 @@ class SlashCommandRouter:
             "| `/remote` | View, bootstrap, or remove remote compute hosts |\n"
             "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
             "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"
+            "| `/theme [name]` | List or switch visual color themes |\n"
             "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
             "| `/retry <node_id>` | Resume a node paused in WAITING_OPERATOR |\n"
             "| `/cancel <node_id>` | Cancel a paused node in WAITING_OPERATOR |\n"

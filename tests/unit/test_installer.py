@@ -60,6 +60,7 @@ def test_installer_creates_directory_structure(tmp_path: Path) -> None:
     assert "skills" in summary["installed"]
     assert "mcp" in summary["installed"]
     assert "rules" in summary["installed"]
+    assert "themes" in summary["installed"]
 
     # Verify global subfolder contains master prompt
     master_prompt_path: Path = target_dir / "global" / "master_prompt.md"
@@ -79,6 +80,11 @@ def test_installer_creates_directory_structure(tmp_path: Path) -> None:
     # Verify rules directory exists
     rules_dir: Path = target_dir / "rules"
     assert rules_dir.is_dir()
+
+    # Verify themes directory exists and contains high_contrast.toml
+    themes_dir: Path = target_dir / "themes"
+    assert themes_dir.is_dir()
+    assert (themes_dir / "high_contrast.toml").is_file()
 
     # Verify config and hosts templates
     assert (target_dir / "hosts.toml").is_file()
@@ -103,7 +109,7 @@ def test_installer_idempotency_and_force(tmp_path: Path) -> None:
 
     # First run: installs sections
     summary1: dict[str, Any] = installer.install(force=False)
-    assert len(summary1["installed"]) == 4
+    assert len(summary1["installed"]) == 5
 
     # Second run without force: already installed, so empty list
     summary2: dict[str, Any] = installer.install(force=False)
@@ -119,7 +125,7 @@ def test_installer_idempotency_and_force(tmp_path: Path) -> None:
 
     # Fourth run with force: prompt is overwritten from base
     summary4: dict[str, Any] = installer.install(force=True)
-    assert len(summary4["installed"]) == 4
+    assert len(summary4["installed"]) == 5
     restored: str = prompt_file.read_text(encoding="utf-8")
     assert "Neuri Master System Prompt" in restored
 

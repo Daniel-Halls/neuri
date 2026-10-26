@@ -1,0 +1,16 @@
+[theme]
+name = "monokai"
+display_name = "Monokai"
+description = "Warm dark theme with high-contrast vivid colors"
+background = "#272822"
+foreground = "#f8f8f2"
+surface = "#1e1f1c"
+panel = "#272822"
+border = "#75715e"
+primary = "#a6e22e"
+secondary = "#fd971f"
+accent = "#66d9ef"
+warning = "#e6db74"
+error = "#f92672"
+success = "#a6e22e"
+dark = true

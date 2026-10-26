@@ -295,3 +295,40 @@ async def test_textual_chat_app_submit_shell_command(tmp_path: Path) -> None:
         children = list(scroll_area.children)
         # welcome card + user shell turn + assistant output turn
         assert len(children) >= 3
+
+
+@pytest.mark.asyncio
+async def test_textual_chat_app_theme_slash_command(tmp_path: Path) -> None:
+    """Test typing /theme dark in TUI dynamically updates active theme.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts application theme switches to dark upon slash command submission.
+    """
+    app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        # Default theme is high_contrast
+        assert app.theme == "high_contrast"
+
+        # Type /theme dark
+        input_widget = app.query_one("#prompt-input")
+        input_widget.value = "/theme dark"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Check theme updated to dark
+        assert app.theme == "dark"
+
+        # Type /theme high_contrast
+        input_widget.value = "/theme high_contrast"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Check theme switched back to high_contrast
+        assert app.theme == "high_contrast"

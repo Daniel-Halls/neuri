@@ -74,7 +74,13 @@ class NeuriInstaller:
         """
         self._target_dir.mkdir(parents=True, exist_ok=True)
 
-        installed_sections: list[str] = ["global", "skills", "mcp", "rules"]
+        installed_sections: list[str] = [
+            "global",
+            "skills",
+            "mcp",
+            "rules",
+            "themes",
+        ]
         result_paths: dict[str, Any] = {
             "target_dir": str(self._target_dir),
             "installed": [],
@@ -105,7 +111,8 @@ class NeuriInstaller:
         config_file: Path = self._target_dir / "config.toml"
         if not config_file.exists():
             config_file.write_text(
-                "[project]\nname = \"global\"\n", encoding="utf-8"
+                "[project]\nname = \"global\"\ntheme = \"high_contrast\"\n",
+                encoding="utf-8",
             )
 
         return result_paths

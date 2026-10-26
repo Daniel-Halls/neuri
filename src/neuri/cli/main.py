@@ -220,6 +220,9 @@ class NeuriCLI:
                 "  - mcp/: MCP server configurations (mcp_servers.json)"
             )
             self.console.print("  - rules/: Operational rules directory")
+            self.console.print(
+                "  - themes/: Terminal UI themes (high_contrast, dark, etc.)"
+            )
         else:
             self.console.print(
                 "[yellow]Neuri environment is already present at:[/yellow] "

@@ -33,6 +33,7 @@ from neuri.remote.shell_executor import (
     ShellCommandExecutor,
     ShellExecutionResult,
 )
+from neuri.ui.theme import NeuriTheme, NeuriThemeManager
 
 
 class MessageCard(Static):
@@ -410,16 +411,16 @@ class NeuriChatApp(App[None]):
 
     CSS = """
     Screen {
-        background: #12141a;
-        color: #e2e8f0;
+        background: $background;
+        color: $foreground;
     }
     #workspace-banner {
         dock: top;
         height: 2;
-        background: #1e2430;
-        color: #94a3b8;
+        background: $surface;
+        color: $foreground;
         padding: 0 1;
-        border-bottom: solid #334155;
+        border-bottom: solid $border;
     }
     #main-horizontal {
         height: 1fr;
@@ -432,73 +433,73 @@ class NeuriChatApp(App[None]):
     #compute-sidebar {
         width: 34;
         height: 100%;
-        background: #161a22;
-        border-left: solid #334155;
+        background: $panel;
+        border-left: solid $border;
         padding: 0 1;
     }
     #compute-sidebar.hidden {
         display: none;
     }
     #compute-sidebar-title {
-        color: #38bdf8;
+        color: $primary;
         text-style: bold;
-        background: #1e2430;
+        background: $surface;
         padding: 0 1;
         margin-bottom: 1;
         width: 100%;
     }
     #compute-sidebar-content {
-        color: #cbd5e1;
+        color: $foreground;
     }
     #input-container {
         dock: bottom;
         height: auto;
         padding: 0 1 1 1;
-        background: #12141a;
+        background: $background;
     }
     #machine-selector-bar {
         height: 1;
         margin-bottom: 0;
         padding: 0 1;
-        background: #1e293b;
-        color: #94a3b8;
+        background: $surface;
+        color: $foreground;
     }
     #machine-selector-bar.hidden {
         display: none;
     }
     Input {
-        border: tall #3b82f6;
-        background: #1e2430;
-        color: #f8fafc;
+        border: tall $border;
+        background: $surface;
+        color: $foreground;
     }
     Input:focus {
-        border: tall #60a5fa;
+        border: tall $accent;
     }
     Input.shell-mode {
-        border: tall #10b981;
+        border: tall $success;
     }
     Input.shell-mode:focus {
-        border: tall #34d399;
+        border: tall $success;
     }
     #telemetry-bar {
         dock: bottom;
         height: 1;
-        background: #0f172a;
-        color: #64748b;
+        background: $surface;
+        color: $foreground;
         padding: 0 1;
     }
     .user-header {
-        color: #38bdf8;
+        color: $primary;
         text-style: bold;
         margin-top: 1;
     }
     .user-body {
         margin-left: 2;
         margin-bottom: 1;
-        color: #f1f5f9;
+        color: $foreground;
     }
     .assistant-header {
-        color: #a78bfa;
+        color: $secondary;
         text-style: bold;
         margin-top: 1;
     }
@@ -507,10 +508,10 @@ class NeuriChatApp(App[None]):
         margin-bottom: 1;
     }
     .thinking-text {
-        color: #94a3b8;
+        color: $foreground;
         text-style: italic;
         padding: 1;
-        background: #1a202c;
+        background: $surface;
     }
     """
 
@@ -560,6 +561,9 @@ class NeuriChatApp(App[None]):
             workspace_dir=self._workspace_dir
         )
         self._machine_selector_bar: MachineSelectorBar = MachineSelectorBar()
+        self._theme_manager: NeuriThemeManager = NeuriThemeManager(
+            workspace_dir=self._workspace_dir
+        )
         self._engine.subscribe(self._handle_session_event)
 
     @property
@@ -632,6 +636,12 @@ class NeuriChatApp(App[None]):
         )
         input_widget.focus()
 
+        # Register all available themes and activate configured theme
+        for thm in self._theme_manager.list_available_themes():
+            self.register_theme(thm.to_textual_theme())
+        active_theme_name: str = self._theme_manager.get_active_theme_name()
+        self.apply_theme(active_theme_name)
+
         # Mount initial welcome card
         welcome_turn: ChatTurn = ChatTurn(
             turn_id="welcome_turn",
@@ -642,6 +652,8 @@ class NeuriChatApp(App[None]):
                 "- Press `Ctrl+S` to toggle Shell Mode (local & remote).\n"
                 "- In Shell Mode, use `←`/`→` or `↑`/`↓` to select machine.\n"
                 "- Press `F2` to toggle the attached Machines & Compute sidebar.\n"
+                "- Type `/theme [name]` to switch color themes (e.g., "
+                "high_contrast, dark, monokai, nord).\n"
                 "- Type `/machines` to view cluster and remote compute node status.\n"
                 "- Type `/skills` to explore available neuroscience skill packs.\n"
                 "- Type `/init` to initialize project configuration and SQLite state.\n"
@@ -658,6 +670,27 @@ class NeuriChatApp(App[None]):
         # Initial machine query and periodic monitor loop
         self.set_interval(15.0, self.refresh_compute_machines)
         asyncio.create_task(self.refresh_compute_machines())
+
+    def apply_theme(self, theme_name: str) -> None:
+        """Apply a color theme by name to the Textual user interface.
+
+        Parameters
+        ------------
+        theme_name: str
+            Theme name or alias (e.g. 'high_contrast', 'dark', 'monokai', 'nord').
+
+        Returns
+        --------
+            None: NoneType object
+                Updates active application theme and re-styles widgets.
+        """
+        clean_name: str = theme_name.strip().lower()
+        if clean_name not in self.available_themes:
+            thm: NeuriTheme | None = self._theme_manager.get_theme(clean_name)
+            if thm is not None:
+                self.register_theme(thm.to_textual_theme())
+        if clean_name in self.available_themes:
+            self.theme = clean_name
 
     def action_toggle_sidebar(self) -> None:
         """Toggle visibility of the compute machines and jobs sidebar.
@@ -804,6 +837,10 @@ class NeuriChatApp(App[None]):
                 "($ ls -la, nvidia-smi, git status)..."
             )
             self._telemetry_bar.status_text = f"Shell [{active_host}]"
+            if not self._shell_executor.is_local(active_host):
+                asyncio.create_task(
+                    self._shell_executor.warm_host(active_host)
+                )
         else:
             selector_bar.add_class("hidden")
             input_widget.remove_class("shell-mode")
@@ -963,6 +1000,13 @@ class NeuriChatApp(App[None]):
                 self.action_clear_screen()
             elif action == "exit_app":
                 self.exit()
+            elif action == "change_theme":
+                data_dict: dict[str, Any] = ev.payload.get("data") or {}
+                thm_name: str = str(
+                    data_dict.get("theme_name")
+                    or ev.payload.get("theme_name", "high_contrast")
+                )
+                self.apply_theme(thm_name)
             elif action == "reload_config":
                 banner: Static = self.query_one("#workspace-banner", Static)
                 banner.update(

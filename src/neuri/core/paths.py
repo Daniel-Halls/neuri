@@ -248,6 +248,76 @@ class PathResolver:
 
         return None
 
+    @classmethod
+    def get_default_themes_dir(cls) -> Path:
+        """Resolve path to the directory containing color themes.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Path: Path object
+                Filesystem path to the active themes directory.
+        """
+        installed: Path = Path.home() / ".neuri" / "themes"
+        if installed.is_dir():
+            return installed
+
+        base_themes: Path = cls.get_base_template_dir() / "themes"
+        if base_themes.is_dir():
+            return base_themes
+
+        repo_root: Path = cls.get_repo_root()
+        fallback: Path = repo_root / "themes"
+        return fallback
+
+    @classmethod
+    def resolve_theme_path(
+        cls, theme_name: str, workspace_dir: Path | None = None
+    ) -> Path | None:
+        """Resolve TOML file path for a given theme name.
+
+        Parameters
+        ------------
+        theme_name: str
+            Theme identifier (e.g. 'high_contrast', 'dark', 'nord').
+        workspace_dir: Path | None
+            Optional workspace directory. Defaults to None.
+
+        Returns
+        --------
+            Path | None: Path object or None
+                Filesystem path to theme TOML file if found, None otherwise.
+        """
+        candidates: list[str] = [
+            f"{theme_name}.toml",
+            f"{theme_name.replace('-', '_')}.toml",
+            f"{theme_name.replace('_', '-')}.toml",
+        ]
+        search_dirs: list[Path] = []
+        if workspace_dir is not None:
+            local_themes: Path = workspace_dir / ".neuri" / "themes"
+            if local_themes.is_dir():
+                search_dirs.append(local_themes)
+
+        user_themes: Path = Path.home() / ".neuri" / "themes"
+        if user_themes.is_dir() and user_themes not in search_dirs:
+            search_dirs.append(user_themes)
+
+        base_themes: Path = cls.get_base_template_dir() / "themes"
+        if base_themes.is_dir() and base_themes not in search_dirs:
+            search_dirs.append(base_themes)
+
+        for s_dir in search_dirs:
+            for cand in candidates:
+                cand_path: Path = s_dir / cand
+                if cand_path.is_file():
+                    return cand_path
+
+        return None
+
 
 __all__: list[str] = [
     "PathResolver",

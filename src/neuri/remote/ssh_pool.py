@@ -52,9 +52,9 @@ class SSHControlMasterPool:
         Returns
         --------
             str: string object
-                Control socket path pattern.
+                Control socket path pattern using compact SHA1 hash (%C).
         """
-        pattern: str = str(self._control_dir / "neuri_mux_%h_%p_%r")
+        pattern: str = str(self._control_dir / "neuri_mux_%C")
         return pattern
 
     def build_ssh_args(self, host: str) -> list[str]:
@@ -68,7 +68,7 @@ class SSHControlMasterPool:
         Returns
         --------
             list[str]: list object
-                Base argument list for ssh invocation.
+                Base argument list for ssh invocation with low-latency flags.
         """
         args: list[str] = [
             "ssh",
@@ -82,9 +82,115 @@ class SSHControlMasterPool:
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            "GSSAPIAuthentication=no",
+            "-o",
+            "ForwardX11=no",
+            "-o",
+            "ForwardAgent=no",
+            "-o",
+            "Compression=no",
+            "-o",
+            "IPQoS=lowdelay",
+            "-o",
+            "Ciphers=aes128-gcm@openssh.com,chacha20-poly1305@openssh.com",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
             host,
         ]
         return args
+
+    async def warm_connection(
+        self, host: str, timeout_seconds: float = 8.0
+    ) -> bool:
+        """Ensure a multiplexed master connection is established and warm.
+
+        Checks if an active ControlMaster socket exists; if not, launches
+        a non-blocking background master process to establish the connection
+        in advance of interactive commands.
+
+        Parameters
+        ------------
+        host: str
+            Target SSH host alias or address.
+        timeout_seconds: float
+            Maximum seconds to wait for connection handshake. Defaults to 8.0.
+
+        Returns
+        --------
+            bool: boolean object
+                True if master connection is warm and ready, False otherwise.
+        """
+        # 1. Quick check if master is already running and responding
+        check_cmd: list[str] = [
+            "ssh",
+            "-O",
+            "check",
+            "-o",
+            f"ControlPath={self.get_control_path_pattern()}",
+            host,
+        ]
+        try:
+            proc_check: asyncio.subprocess.Process = (
+                await asyncio.create_subprocess_exec(
+                    *check_cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            )
+            await asyncio.wait_for(proc_check.wait(), timeout=1.5)
+            if proc_check.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+        # 2. Not running, establish master in background with -fN
+        warm_args: list[str] = [
+            "ssh",
+            "-fN",
+            "-o",
+            "ControlMaster=yes",
+            "-o",
+            f"ControlPath={self.get_control_path_pattern()}",
+            "-o",
+            f"ControlPersist={self.DEFAULT_CONTROL_PERSIST}",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "GSSAPIAuthentication=no",
+            "-o",
+            "ForwardX11=no",
+            "-o",
+            "ForwardAgent=no",
+            "-o",
+            "Compression=no",
+            "-o",
+            "IPQoS=lowdelay",
+            "-o",
+            "Ciphers=aes128-gcm@openssh.com,chacha20-poly1305@openssh.com",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
+            host,
+        ]
+        try:
+            proc_warm: asyncio.subprocess.Process = (
+                await asyncio.create_subprocess_exec(
+                    *warm_args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            )
+            await asyncio.wait_for(proc_warm.wait(), timeout=timeout_seconds)
+            is_warmed: bool = proc_warm.returncode == 0
+            return is_warmed
+        except Exception:
+            return False
 
     async def run_command(
         self,
@@ -184,6 +290,10 @@ class SSHControlMasterPool:
             f"ControlPersist={self.DEFAULT_CONTROL_PERSIST}",
             "-o",
             "BatchMode=yes",
+            "-o",
+            "GSSAPIAuthentication=no",
+            "-o",
+            "IPQoS=lowdelay",
             host,
         ]
         return args

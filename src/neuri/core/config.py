@@ -78,6 +78,10 @@ class WorkspaceConfig(BaseModel):
         default=None,
         description="Remote root URI for BIDS dataset, e.g. host:///path/to/bids",
     )
+    theme: str = Field(
+        default="high_contrast",
+        description="Active terminal color theme name (e.g. 'high_contrast', 'dark')",
+    )
 
 
 class ProjectConfig(WorkspaceConfig):
@@ -328,6 +332,21 @@ class NeuriConfig(BaseModel):
         # Handle [workspace] alias for [project]
         if "workspace" in normalized and "project" not in normalized:
             normalized["project"] = normalized["workspace"]
+
+        # Handle [ui.theme] or top-level theme
+        if "ui" in normalized and isinstance(normalized["ui"], dict):
+            if "theme" in normalized["ui"]:
+                if "project" not in normalized or not isinstance(
+                    normalized["project"], dict
+                ):
+                    normalized["project"] = {}
+                normalized["project"]["theme"] = normalized["ui"]["theme"]
+        elif "theme" in normalized:
+            if "project" not in normalized or not isinstance(
+                normalized["project"], dict
+            ):
+                normalized["project"] = {}
+            normalized["project"]["theme"] = normalized["theme"]
 
         # Handle [harnesses.routing] nested table or [harnesses_routing]
         if "harnesses" in normalized and isinstance(normalized["harnesses"], dict):

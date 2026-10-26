@@ -1,0 +1,16 @@
+[theme]
+name = "high_contrast"
+display_name = "High Contrast"
+description = "Pure black background with crisp white text, borders, and high contrast accents (VS Code style)"
+background = "#000000"
+foreground = "#ffffff"
+surface = "#000000"
+panel = "#000000"
+border = "#ffffff"
+primary = "#ffffff"
+secondary = "#ffffff"
+accent = "#00ffff"
+warning = "#ffea00"
+error = "#ff0055"
+success = "#00ff66"
+dark = true

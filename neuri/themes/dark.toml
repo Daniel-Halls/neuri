@@ -1,0 +1,16 @@
+[theme]
+name = "dark"
+display_name = "Neuri Dark"
+description = "Deep slate navy theme with vibrant cyan and violet accents"
+background = "#12141a"
+foreground = "#e2e8f0"
+surface = "#1e2430"
+panel = "#161a22"
+border = "#334155"
+primary = "#38bdf8"
+secondary = "#a78bfa"
+accent = "#38bdf8"
+warning = "#f59e0b"
+error = "#ef4444"
+success = "#10b981"
+dark = true

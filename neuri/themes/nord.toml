@@ -1,0 +1,16 @@
+[theme]
+name = "nord"
+display_name = "Nord"
+description = "Arctic north-bluish clean and muted color palette"
+background = "#2e3440"
+foreground = "#eceff4"
+surface = "#3b4252"
+panel = "#2e3440"
+border = "#4c566a"
+primary = "#88c0d0"
+secondary = "#b48ead"
+accent = "#81a1c1"
+warning = "#ebcb8b"
+error = "#bf616a"
+success = "#a3be8c"
+dark = true

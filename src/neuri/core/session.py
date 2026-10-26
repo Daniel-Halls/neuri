@@ -277,8 +277,8 @@ class NeuriSessionEngine:
         """
         cmd_res: SlashCommandResult = self._slash_router.execute(command_line)
 
-        # If action requested (e.g. reload_config)
-        if cmd_res.action == "reload_config":
+        # If action requested (e.g. reload_config or change_theme)
+        if cmd_res.action in ("reload_config", "change_theme"):
             self._config = load_config(self._workspace_dir)
             db_path: Path = self._resolve_db_path()
             self._blackboard = Blackboard(db_path)
