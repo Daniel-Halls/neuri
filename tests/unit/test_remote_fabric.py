@@ -265,3 +265,61 @@ def test_remove_host_record(tmp_path: Path) -> None:
     assert bootstrapper.remove_host_record("nonexistent") is False
     assert bootstrapper.remove_host_record("hpc_node") is True
     assert bootstrapper.remove_host_record("hpc_node") is False
+
+
+@pytest.mark.asyncio
+async def test_persistent_shell_session_local_lifecycle(
+    tmp_path: Path,
+) -> None:
+    """Test PersistentShellSession starts, runs commands, and closes cleanly.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts ultra-low latency execution and exit code preservation.
+    """
+    from neuri.remote.shell_executor import (
+        PersistentShellSession,
+        ShellCommandExecutor,
+    )
+
+    pool: SSHControlMasterPool = SSHControlMasterPool()
+    session: PersistentShellSession = PersistentShellSession(
+        host="localhost",
+        is_local=True,
+        workspace_dir=tmp_path,
+        ssh_pool=pool,
+    )
+
+    assert session.is_alive() is False
+    started: bool = await session.start()
+    assert started is True
+    assert session.is_alive() is True
+
+    # Command 1: success
+    code1, out1, dur1 = await session.execute("echo 'fast_session_test'")
+    assert code1 == 0
+    assert "fast_session_test" in out1
+    assert dur1 < 0.2
+
+    # Command 2: error status
+    code2, out2, dur2 = await session.execute("ls nonexistent_target_path_xyz")
+    assert code2 != 0
+    assert "nonexistent_target_path_xyz" in out2
+
+    await session.close()
+    assert session.is_alive() is False
+
+    # Test ShellCommandExecutor close_all cleans up registered sessions
+    executor: ShellCommandExecutor = ShellCommandExecutor(
+        workspace_dir=tmp_path, ssh_pool=pool
+    )
+    res = await executor.execute("echo 'executor_persistent'")
+    assert res.exit_code == 0
+    assert "executor_persistent" in res.stdout
+    await executor.close_all()

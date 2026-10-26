@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import time
 from typing import Any
+import uuid
 
 from neuri.core.config import NeuriConfig
 from neuri.remote.monitor import RemoteHostMonitor
@@ -48,6 +49,232 @@ class ShellExecutionResult:
     stdout: str
     stderr: str
     duration_seconds: float
+
+
+class PersistentShellSession:
+    """Manages an active, long-lived shell session on a local or remote host.
+
+    Eliminates per-command SSH handshake, PAM session initialization, and shell
+    startup overhead by streaming commands into an already-running shell process.
+
+    Parameters
+    ------------
+    host: str
+        Target host alias or 'localhost'.
+    is_local: bool
+        Whether this session runs on the local operating system.
+    workspace_dir: Path
+        Local working directory for the process.
+    ssh_pool: SSHControlMasterPool
+        SSH pool used to construct multiplexed SSH arguments for remote hosts.
+
+    Returns
+    --------
+        PersistentShellSession: PersistentShellSession instance
+            Constructed persistent shell session controller.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        is_local: bool,
+        workspace_dir: Path,
+        ssh_pool: SSHControlMasterPool,
+    ) -> None:
+        """Initialize persistent shell session state.
+
+        Parameters
+        ------------
+        host: str
+            Target host alias.
+        is_local: bool
+            Whether host is localhost.
+        workspace_dir: Path
+            Workspace directory for local cwd.
+        ssh_pool: SSHControlMasterPool
+            SSH connection pool.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes instance properties.
+        """
+        self._host: str = host
+        self._is_local: bool = is_local
+        self._workspace_dir: Path = workspace_dir
+        self._ssh_pool: SSHControlMasterPool = ssh_pool
+        self._process: asyncio.subprocess.Process | None = None
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    def is_alive(self) -> bool:
+        """Check whether the underlying shell subprocess is running.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if process exists and has not terminated, False otherwise.
+        """
+        alive: bool = (
+            self._process is not None and self._process.returncode is None
+        )
+        return alive
+
+    async def start(self) -> bool:
+        """Start the persistent shell process if not already running.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if shell process started successfully, False on error.
+        """
+        if self.is_alive():
+            return True
+
+        try:
+            if self._is_local:
+                cmd_args: list[str] = ["/bin/bash"]
+                cwd_path: str | None = str(self._workspace_dir)
+            else:
+                ssh_args: list[str] = self._ssh_pool.build_ssh_args(self._host)
+                cmd_args = [*ssh_args, "bash || sh"]
+                cwd_path = None
+
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=cwd_path,
+            )
+            return True
+        except Exception:
+            self._process = None
+            return False
+
+    async def execute(
+        self, command: str, timeout_seconds: float = 60.0
+    ) -> tuple[int, str, float]:
+        """Execute command in the persistent shell and stream results.
+
+        Parameters
+        ------------
+        command: str
+            Shell command to evaluate.
+        timeout_seconds: float
+            Maximum seconds to wait for execution to complete. Defaults to 60.0.
+
+        Returns
+        --------
+            tuple[int, str, float]: tuple object
+                Tuple containing exit code, stdout/stderr output, and elapsed time.
+        """
+        async with self._lock:
+            if not self.is_alive():
+                started: bool = await self.start()
+                if (
+                    not started
+                    or self._process is None
+                    or self._process.stdin is None
+                ):
+                    return (-1, "Failed to start persistent shell session", 0.0)
+
+            start_t: float = time.monotonic()
+            delim: str = f"__NEURI_END_{uuid.uuid4().hex[:10]}__"
+            script: str = (
+                f"{{ {command} ; }} ; printf \"{delim}:%d\\n\" \"$?\"\n"
+            )
+
+            try:
+                self._process.stdin.write(script.encode("utf-8"))
+                await self._process.stdin.drain()
+
+                lines: list[str] = []
+                exit_code: int = 0
+
+                while True:
+                    if self._process.stdout is None:
+                        break
+                    raw_line: bytes = await asyncio.wait_for(
+                        self._process.stdout.readline(), timeout=timeout_seconds
+                    )
+                    if not raw_line:
+                        # Subprocess terminated before marker (e.g. 'exit 42')
+                        await self._process.wait()
+                        if self._process.returncode is not None:
+                            exit_code = self._process.returncode
+                        self._process = None
+                        break
+                    decoded: str = raw_line.decode("utf-8", errors="replace")
+                    if delim in decoded:
+                        pos: int = decoded.find(delim)
+                        status_str: str = decoded[pos + len(delim) :].strip()
+                        if status_str.startswith(":"):
+                            try:
+                                exit_code = int(status_str[1:])
+                            except ValueError:
+                                exit_code = -1
+                        break
+                    lines.append(decoded)
+
+                elapsed_t: float = time.monotonic() - start_t
+                output_str: str = "".join(lines).strip()
+                return (exit_code, output_str, elapsed_t)
+
+            except asyncio.TimeoutError:
+                elapsed_t = time.monotonic() - start_t
+                if self._process is not None:
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
+                    self._process = None
+                return (
+                    -2,
+                    f"Command timed out after {timeout_seconds:.1f}s",
+                    elapsed_t,
+                )
+
+            except Exception as exc:
+                elapsed_t = time.monotonic() - start_t
+                if self._process is not None:
+                    try:
+                        self._process.kill()
+                    except Exception:
+                        pass
+                    self._process = None
+                return (-1, f"Session error: {exc}", elapsed_t)
+
+    async def close(self) -> None:
+        """Close the persistent shell process and free process handles.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Terminates subprocess cleanly.
+        """
+        if self._process is not None and self._process.returncode is None:
+            try:
+                if self._process.stdin is not None:
+                    self._process.stdin.close()
+                await asyncio.wait_for(self._process.wait(), timeout=1.0)
+            except Exception:
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+        self._process = None
 
 
 class ShellCommandExecutor:
@@ -93,6 +320,34 @@ class ShellCommandExecutor:
         self._ssh_pool: SSHControlMasterPool = (
             ssh_pool if ssh_pool is not None else SSHControlMasterPool()
         )
+        self._persistent_sessions: dict[str, PersistentShellSession] = {}
+
+    def _get_or_create_session(
+        self, host: str, is_local: bool
+    ) -> PersistentShellSession:
+        """Retrieve existing persistent session or initialize a new one.
+
+        Parameters
+        ------------
+        host: str
+            Target host alias.
+        is_local: bool
+            Whether host is local.
+
+        Returns
+        --------
+            PersistentShellSession: PersistentShellSession instance
+                Active or new session controller.
+        """
+        if host not in self._persistent_sessions:
+            self._persistent_sessions[host] = PersistentShellSession(
+                host=host,
+                is_local=is_local,
+                workspace_dir=self._workspace_dir,
+                ssh_pool=self._ssh_pool,
+            )
+        session: PersistentShellSession = self._persistent_sessions[host]
+        return session
 
     def is_local(self, host: str) -> bool:
         """Check if target host represents the local machine.
@@ -150,7 +405,7 @@ class ShellCommandExecutor:
         return hosts
 
     async def warm_host(self, host: str) -> bool:
-        """Pre-warm connection to a host if it is a remote target.
+        """Pre-warm connection and interactive shell session to a host.
 
         Parameters
         ------------
@@ -160,13 +415,27 @@ class ShellCommandExecutor:
         Returns
         --------
             bool: boolean object
-                True if local or if remote connection is warm, False otherwise.
+                True if host connection and session are ready, False otherwise.
         """
         clean_host: str = host.strip() if host.strip() else "localhost"
-        if self.is_local(clean_host):
-            return True
-        warmed: bool = await self._ssh_pool.warm_connection(clean_host)
-        return warmed
+        is_loc: bool = self.is_local(clean_host)
+        if is_loc:
+            local_session: PersistentShellSession = (
+                self._get_or_create_session(clean_host, is_loc)
+            )
+            local_warmed: bool = await local_session.start()
+            return local_warmed
+
+        ssh_warmed: bool = await self._ssh_pool.warm_connection(clean_host)
+        if ssh_warmed:
+            remote_session: PersistentShellSession = (
+                self._get_or_create_session(clean_host, is_loc)
+            )
+            try:
+                await remote_session.start()
+            except Exception:
+                pass
+        return ssh_warmed
 
     async def execute(
         self,
@@ -191,10 +460,35 @@ class ShellCommandExecutor:
             ShellExecutionResult: ShellExecutionResult instance
                 Captured exit code, output streams, and timing metrics.
         """
-        start_time: float = time.monotonic()
         clean_host: str = host.strip() if host.strip() else "localhost"
+        is_loc: bool = self.is_local(clean_host)
 
-        if self.is_local(clean_host):
+        session: PersistentShellSession = self._get_or_create_session(
+            clean_host, is_loc
+        )
+        try:
+            code, out_str, elapsed = await session.execute(
+                command=command, timeout_seconds=timeout_seconds
+            )
+            if (
+                code != -1
+                or "Failed to start persistent shell session" not in out_str
+            ):
+                stdout_res: str = out_str if code >= 0 else ""
+                stderr_res: str = out_str if code != 0 else ""
+                return ShellExecutionResult(
+                    command=command,
+                    host=clean_host,
+                    exit_code=code,
+                    stdout=stdout_res,
+                    stderr=stderr_res,
+                    duration_seconds=elapsed,
+                )
+        except Exception:
+            pass
+
+        start_time: float = time.monotonic()
+        if is_loc:
             res: ShellExecutionResult = await self._execute_local(
                 command=command,
                 host=clean_host,
@@ -362,8 +656,25 @@ class ShellCommandExecutor:
         md_output: str = "\n".join(lines)
         return md_output
 
+    async def close_all(self) -> None:
+        """Close all active persistent shell sessions cleanly.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Closes all managed subprocesses.
+        """
+        for sess in self._persistent_sessions.values():
+            await sess.close()
+        self._persistent_sessions.clear()
+
 
 __all__: list[str] = [
+    "PersistentShellSession",
     "ShellCommandExecutor",
     "ShellExecutionResult",
 ]
