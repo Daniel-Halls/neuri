@@ -167,12 +167,14 @@ def test_preflight_fails_when_phi_not_sanitized(
     sample_file: Path = tmp_path / "raw.nii.gz"
     sample_file.write_bytes(b"raw-data")
 
-    unsanitized_header: SanitizedNeuroHeader = SanitizedNeuroHeader(
-        shape=[256, 256, 176],
-        voxel_sizes_mm=[1.0, 1.0, 1.0],
-        orientation="RAS",
-        dtype="float32",
-        phi_sanitized=False,
+    unsanitized_header: SanitizedNeuroHeader = (
+        SanitizedNeuroHeader.model_construct(
+            shape=[256, 256, 176],
+            voxel_sizes_mm=[1.0, 1.0, 1.0],
+            orientation="RAS",
+            dtype="float32",
+            phi_sanitized=False,
+        )
     )
     unsanitized_art: RemoteArtifact = RemoteArtifact(
         artifact_id="art-unsanitized-01",

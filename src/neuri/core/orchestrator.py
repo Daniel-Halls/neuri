@@ -15,7 +15,16 @@ import yaml
 
 from neuri.adapters.base import BaseHarnessAdapter
 from neuri.adapters.registry import AdapterRegistry
+from neuri.agents.base_agent import BaseSpecialistAgent
+from neuri.agents.compute_agent import ComputeOperatorAgent
+from neuri.agents.critic_qa_agent import CriticQAAgent
+from neuri.agents.electrophys_agent import ElectrophysSpecialistAgent
+from neuri.agents.neuroimaging_agent import NeuroimagingSpecialistAgent
+from neuri.agents.pipeline_agent import PipelineEngineerAgent
+from neuri.agents.writer_agent import ScientificWriterAgent
 from neuri.core.blackboard import Blackboard
+from neuri.core.config import NeuriConfig
+from neuri.core.paths import PathResolver
 from neuri.core.preflight import PreflightCheckResult, PreflightValidator
 from neuri.core.schemas import (
     NeuriTaskEnvelope,
@@ -83,9 +92,20 @@ class DAGOrchestrator:
             Constructed orchestrator engine.
     """
 
+    SKILL_ROLE_MAP: dict[str, str] = {
+        "bids-standard": "neuroimaging_specialist",
+        "neuroimaging-preproc": "neuroimaging_specialist",
+        "fmri-postproc": "neuroimaging_specialist",
+        "dwi-tractography": "neuroimaging_specialist",
+        "eeg-meg-pipeline": "electrophys_specialist",
+        "remote-compute-slurm": "compute_operator",
+        "scientific-writing-neuro": "scientific_writer",
+    }
+
     def __init__(
         self,
         blackboard: Blackboard,
+        config: NeuriConfig | None = None,
         adapter_registry: AdapterRegistry | None = None,
         preflight_validator: PreflightValidator | None = None,
         skills_index_path: Path | None = None,
@@ -96,6 +116,8 @@ class DAGOrchestrator:
         ------------
         blackboard: Blackboard
             Target SQLite Blackboard instance.
+        config: NeuriConfig | None
+            Two-tier configuration. Defaults to None (empty NeuriConfig).
         adapter_registry: AdapterRegistry | None
             Harness registry instance. Defaults to None.
         preflight_validator: PreflightValidator | None
@@ -109,19 +131,50 @@ class DAGOrchestrator:
                 Initializes orchestrator state.
         """
         self._blackboard: Blackboard = blackboard
+        self._config: NeuriConfig = config if config is not None else NeuriConfig()
         self._registry: AdapterRegistry = (
             adapter_registry if adapter_registry is not None else AdapterRegistry()
         )
+        catalog: Path = (
+            skills_index_path
+            if skills_index_path is not None
+            else PathResolver.get_default_skills_index()
+        )
+        self._catalog_path: Path = catalog
         self._validator: PreflightValidator = (
             preflight_validator
             if preflight_validator is not None
-            else PreflightValidator(catalog_path=skills_index_path)
+            else PreflightValidator(catalog_path=catalog)
         )
-        self._catalog_path: Path = (
-            skills_index_path
-            if skills_index_path is not None
-            else Path("skills/index.yaml")
+        self._critic_agent: CriticQAAgent = CriticQAAgent()
+        self._specialist_agents: dict[str, BaseSpecialistAgent] = {
+            "pipeline_engineer": PipelineEngineerAgent(),
+            "neuroimaging_specialist": NeuroimagingSpecialistAgent(),
+            "electrophys_specialist": ElectrophysSpecialistAgent(),
+            "compute_operator": ComputeOperatorAgent(),
+            "critic_qa": self._critic_agent,
+            "scientific_writer": ScientificWriterAgent(),
+        }
+
+    def _resolve_specialist_agent(
+        self, agent_role: str
+    ) -> BaseSpecialistAgent:
+        """Retrieve the domain specialist agent for a given role name.
+
+        Parameters
+        ------------
+        agent_role: str
+            Canonical agent role identifier.
+
+        Returns
+        --------
+            BaseSpecialistAgent: BaseSpecialistAgent instance
+                Corresponding domain specialist agent.
+        """
+        agent: BaseSpecialistAgent = self._specialist_agents.get(
+            agent_role, self._specialist_agents["neuroimaging_specialist"]
         )
+        return agent
 
     def plan_workflow_from_prompt(
         self, prompt: str, workflow_id: str | None = None
@@ -147,7 +200,7 @@ class DAGOrchestrator:
         )
         self._blackboard.create_workflow(
             workflow_id=wf_id,
-            description=f"Generated from prompt: {prompt[:80]}",
+            prompt=prompt,
         )
 
         matched_skills: list[str] = self._match_skills_from_prompt(prompt)
@@ -157,31 +210,46 @@ class DAGOrchestrator:
         prev_node_id: str | None = None
         for idx, skill_id in enumerate(matched_skills, start=1):
             node_id: str = f"node_{wf_id}_{idx}_{skill_id.replace('-', '_')}"
-            envelope: NeuriTaskEnvelope = NeuriTaskEnvelope(
+            agent_role: str = self.SKILL_ROLE_MAP.get(
+                skill_id, "neuroimaging_specialist"
+            )
+            route = self._config.harness_routing.get(agent_role)
+            harness_id: str = route.harness if route is not None else "agy"
+            exec_mode: str = route.mode if route is not None else "headless_json"
+
+            resolved_dir: Path | None = PathResolver.resolve_skill_dir(skill_id)
+            skill_paths: list[str] = (
+                [str(resolved_dir)] if resolved_dir is not None else [skill_id]
+            )
+
+            specialist: BaseSpecialistAgent = self._resolve_specialist_agent(
+                agent_role
+            )
+            base_env: NeuriTaskEnvelope = specialist.build_envelope(
                 workflow_id=wf_id,
                 node_id=node_id,
-                agent_role="neuroimaging_specialist",
-                harness_id="agy",
-                execution_mode="headless_json",
-                system_prompt="You are a neuroimaging specialist.",
-                task_instruction=f"Execute {skill_id} for: {prompt}",
-                skill_paths=[skill_id],
-                max_tokens_budget=64000,
-                max_cost_usd=2.00,
-                attempt_number=1,
-                max_retries=2,
+                task_instruction=(
+                    f"Respond directly to the user's request/question "
+                    f"(skill context: {skill_id}):\n{prompt}"
+                ),
+                harness_id=harness_id,
+                execution_mode=exec_mode,
+                config=self._config,
+            )
+            envelope: NeuriTaskEnvelope = base_env.model_copy(
+                update={"skill_paths": skill_paths}
             )
             node: TaskNode = TaskNode(
                 node_id=node_id,
                 workflow_id=wf_id,
-                agent_role="neuroimaging_specialist",
-                harness_id="agy",
+                agent_role=agent_role,
+                harness_id=harness_id,
                 state=TaskState.PENDING,
                 attempt=0,
-                max_retries=2,
+                max_retries=self._config.budgets.max_node_retries,
                 envelope=envelope,
             )
-            self._blackboard.register_node(node)
+            self._blackboard.create_node(node)
 
             if prev_node_id is not None:
                 edge: TaskEdge = TaskEdge(
@@ -189,7 +257,7 @@ class DAGOrchestrator:
                     child_node_id=node_id,
                     workflow_id=wf_id,
                 )
-                self._blackboard.register_edge(edge)
+                self._blackboard.add_edge(edge)
             prev_node_id = node_id
 
         return wf_id
@@ -276,6 +344,56 @@ class DAGOrchestrator:
 
         return results
 
+    async def execute_workflow(
+        self,
+        workflow_id: str,
+        on_event: Callable[[TelemetryEvent], None] | None = None,
+        timeout_seconds: float = 300.0,
+    ) -> list[NeuriTaskResult]:
+        """Execute all ready and dependent DAG nodes wave-by-wave until completion.
+
+        Parameters
+        ------------
+        workflow_id: str
+            Target workflow identifier.
+        on_event: Callable[[TelemetryEvent], None] | None
+            Optional telemetry streaming callback. Defaults to None.
+        timeout_seconds: float
+            Subprocess execution timeout per node. Defaults to 300.0.
+
+        Returns
+        --------
+            list[NeuriTaskResult]: list object
+                Aggregated execution results for all processed nodes.
+        """
+        aggregated: list[NeuriTaskResult] = []
+        max_waves: int = 100
+        wave: int = 0
+
+        while wave < max_waves:
+            wave += 1
+            ready: list[TaskNode] = self._blackboard.get_ready_nodes(workflow_id)
+            if not ready:
+                break
+
+            wave_res: list[NeuriTaskResult] = await self.execute_ready_nodes(
+                workflow_id=workflow_id,
+                on_event=on_event,
+                timeout_seconds=timeout_seconds,
+            )
+            aggregated.extend(wave_res)
+
+            should_halt: bool = False
+            for r in wave_res:
+                n: TaskNode | None = self._blackboard.get_node(r.node_id)
+                if n is not None and n.state == TaskState.WAITING_OPERATOR:
+                    should_halt = True
+                    break
+            if should_halt:
+                break
+
+        return aggregated
+
     async def _execute_single_node(
         self,
         node: TaskNode,
@@ -328,6 +446,12 @@ class DAGOrchestrator:
             adapter: BaseHarnessAdapter = self._registry.get_adapter(
                 node.harness_id
             )
+            if not adapter.is_available() and node.harness_id != "agy":
+                fallback_adapter: BaseHarnessAdapter = (
+                    self._registry.get_adapter("agy")
+                )
+                if fallback_adapter.is_available():
+                    adapter = fallback_adapter
         except Exception as exc:
             self._blackboard.update_node_state(
                 node.node_id,
@@ -350,36 +474,43 @@ class DAGOrchestrator:
             blackboard=self._blackboard,
         )
 
-        # 3. Handle outcome
+        # 3. Handle outcome via QA_REVIEW and CriticQAAgent
         if exec_res.success:
-            self._blackboard.update_node_state(
-                node.node_id,
-                TaskState.COMPLETED,
-                summary_result=exec_res.summary,
-            )
             for art in exec_res.artifacts_emitted:
                 try:
-                    self._blackboard.register_artifact(art)
+                    self._blackboard.register_artifact(
+                        art, workflow_id=node.workflow_id, node_id=node.node_id
+                    )
                 except Exception:
                     pass
+            self._blackboard.update_node_state(
+                node.node_id,
+                TaskState.QA_REVIEW,
+                summary_result=exec_res.summary,
+            )
+            self._critic_agent.review_node(
+                blackboard=self._blackboard,
+                node_id=node.node_id,
+            )
             return exec_res
 
         # 4. Handle failure with bounded retries (N=2)
         current_attempt: int = node.attempt + 1
         if current_attempt < node.max_retries:
-            new_envelope = node.envelope.model_copy(
+            new_envelope: NeuriTaskEnvelope = node.envelope.model_copy(
                 update={
                     "attempt_number": current_attempt + 1,
                     "diagnostic_feedback": exec_res.error_message,
                 }
             )
+            self._blackboard.update_node_envelope(node.node_id, new_envelope)
             self._blackboard.update_node_state(
                 node.node_id,
                 TaskState.RETRYING,
                 diagnostic_feedback=exec_res.error_message,
                 summary_result=f"Retrying (attempt {current_attempt + 1})",
             )
-            # Revert to PENDING so next cycle re-executes with updated attempt
+            # Revert to PENDING so next wave re-executes with updated attempt
             self._blackboard.update_node_state(
                 node.node_id,
                 TaskState.PENDING,

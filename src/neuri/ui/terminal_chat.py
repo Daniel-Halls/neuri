@@ -272,6 +272,21 @@ class NeuriChatApp(App[None]):
         self._telemetry_bar: TelemetryBar = TelemetryBar()
         self._engine.subscribe(self._handle_session_event)
 
+    @property
+    def is_mounted(self) -> bool:
+        """Check if application is running and mounted.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if application is mounted and running.
+        """
+        return bool(self._is_mounted)
+
     def compose(self) -> ComposeResult:
         """Compose layout widgets for the interactive chat interface.
 
@@ -417,12 +432,24 @@ class NeuriChatApp(App[None]):
                     f" Workspace: {self._workspace_dir.name} "
                     f"({self._workspace_dir})  │  State: [Initialized]"
                 )
+            elif action == "token_increment":
+                toks_inc: int = int(ev.payload.get("tokens", 0))
+                cost_inc: float = float(ev.payload.get("cost_usd", 0.0))
+                self._telemetry_bar.tokens_count += toks_inc
+                self._telemetry_bar.cost_usd += cost_inc
+
+        elif ev.event_type == SessionEventType.THINKING_CHUNK:
+            self._telemetry_bar.status_text = "Reasoning..."
+
+        elif ev.event_type == SessionEventType.CIRCUIT_BREAKER_TRIGGERED:
+            self._telemetry_bar.status_text = "Circuit Breaker Tripped"
 
         elif ev.event_type == SessionEventType.WORKFLOW_COMPLETED:
             toks: int = int(ev.payload.get("total_tokens", 0))
             cost: float = float(ev.payload.get("cost_usd", 0.0))
             self._telemetry_bar.tokens_count += toks
             self._telemetry_bar.cost_usd += cost
+            self._telemetry_bar.status_text = "Ready"
 
     def action_clear_screen(self) -> None:
         """Clear all messages from the chat scroll area.

@@ -5,7 +5,9 @@ and canonical domain schema objects for unit and integration testing.
 """
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import struct
 from typing import Any
 
 import pytest
@@ -174,3 +176,120 @@ def mock_global_config_path(tmp_path: Path) -> Path:
     with open(cfg_file, "wb") as fh:
         tomli_w.dump(data, fh)
     return cfg_file
+
+
+def build_synthetic_nifti_bytes(
+    orientation: str = "RAS",
+    descrip_phi: bytes = b"Patient: John Doe DOB 1980-01-01",
+) -> bytes:
+    """Build a valid 352-byte binary NIfTI-1 header + 64-voxel payload.
+
+    Parameters
+    ------------
+    orientation: str
+        Target orientation ('RAS' or 'LPS'). Defaults to 'RAS'.
+    descrip_phi: bytes
+        Injected PHI string in descrip field (bytes 148..228).
+
+    Returns
+    --------
+        bytes: bytes object
+            Raw NIfTI-1 file bytes (<1 KB).
+    """
+    hdr: bytearray = bytearray(352)
+    struct.pack_into("<i", hdr, 0, 348)
+    hdr[14:32] = b"DB_SECRET_PATIENT\x00"
+    dims: tuple[int, ...] = (4, 4, 4, 4, 2, 1, 1, 1)
+    struct.pack_into("<8h", hdr, 40, *dims)
+    struct.pack_into("<h", hdr, 70, 16)
+    struct.pack_into("<h", hdr, 72, 32)
+    pixdims: tuple[float, ...] = (1.0, 2.0, 2.0, 2.0, 1.5, 0.0, 0.0, 0.0)
+    struct.pack_into("<8f", hdr, 76, *pixdims)
+    struct.pack_into("<f", hdr, 108, 352.0)
+    hdr[148 : 148 + min(80, len(descrip_phi))] = descrip_phi[:80]
+    hdr[228:252] = b"AUX_PHI_RECORD_99\x00\x00\x00\x00\x00\x00\x00"
+    struct.pack_into("<h", hdr, 252, 1)
+    struct.pack_into("<h", hdr, 254, 1)
+    sign: float = -2.0 if orientation == "LPS" else 2.0
+    struct.pack_into("<4f", hdr, 280, sign, 0.0, 0.0, 0.0)
+    struct.pack_into("<4f", hdr, 296, 0.0, sign, 0.0, 0.0)
+    struct.pack_into("<4f", hdr, 312, 0.0, 0.0, 2.0, 0.0)
+    hdr[344:348] = b"n+1\x00"
+    payload: bytes = struct.pack("<128f", *[float(i) for i in range(128)])
+    return bytes(hdr) + payload
+
+
+@pytest.fixture
+def synthetic_nifti_ras_path(tmp_path: Path) -> Path:
+    """Create a synthetic RAS+ NIfTI-1 file containing PHI in header fields.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Temporary directory fixture.
+
+    Returns
+    --------
+        Path: Path object
+            Path to synthetic RAS+ NIfTI-1 file.
+    """
+    nii_path: Path = tmp_path / "sub-01_ses-01_task-rest_bold.nii"
+    nii_path.write_bytes(build_synthetic_nifti_bytes(orientation="RAS"))
+    return nii_path
+
+
+@pytest.fixture
+def synthetic_nifti_lps_path(tmp_path: Path) -> Path:
+    """Create a synthetic LPS+ NIfTI-1 file containing PHI in header fields.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Temporary directory fixture.
+
+    Returns
+    --------
+        Path: Path object
+            Path to synthetic LPS+ NIfTI-1 file.
+    """
+    nii_path: Path = tmp_path / "sub-01_T1w.nii"
+    nii_path.write_bytes(build_synthetic_nifti_bytes(orientation="LPS"))
+    return nii_path
+
+
+@pytest.fixture
+def synthetic_bids_dir(tmp_path: Path) -> Path:
+    """Create a miniature valid BIDS dataset directory tree (<100 KB).
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Temporary directory fixture.
+
+    Returns
+    --------
+        Path: Path object
+            Root path of synthetic BIDS dataset.
+    """
+    bids_root: Path = tmp_path / "bids_dataset"
+    anat_dir: Path = bids_root / "sub-01" / "anat"
+    func_dir: Path = bids_root / "sub-01" / "func"
+    anat_dir.mkdir(parents=True)
+    func_dir.mkdir(parents=True)
+
+    desc: dict[str, Any] = {
+        "Name": "Synthetic Neuri Test Dataset",
+        "BIDSVersion": "1.9.0",
+        "DatasetType": "raw",
+    }
+    (bids_root / "dataset_description.json").write_text(
+        json.dumps(desc, indent=2), encoding="utf-8"
+    )
+    (anat_dir / "sub-01_T1w.nii").write_bytes(
+        build_synthetic_nifti_bytes(orientation="RAS")
+    )
+    (func_dir / "sub-01_task-rest_bold.nii").write_bytes(
+        build_synthetic_nifti_bytes(orientation="RAS")
+    )
+    return bids_root
+

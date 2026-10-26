@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
 
+from neuri.core.paths import PathResolver
 from neuri.core.schemas import NeuriTaskEnvelope, RemoteArtifact
 
 
@@ -170,8 +171,8 @@ class PreflightValidator:
             except Exception:
                 pass
 
-        # Check default project path
-        default_idx: Path = Path("skills/index.yaml")
+        # Check default project path via PathResolver
+        default_idx: Path = PathResolver.get_default_skills_index()
         if default_idx.is_file() and default_idx != self._catalog_path:
             try:
                 content = default_idx.read_text(encoding="utf-8")

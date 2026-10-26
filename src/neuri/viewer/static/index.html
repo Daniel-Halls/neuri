@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neuri NiiVue WebGL2 Visualizer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      background-color: #1e293b;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #334155;
+      z-index: 10;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #38bdf8;
+    }
+    .brand span {
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    button {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover {
+      background: #475569;
+    }
+    button.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      font-weight: 600;
+    }
+    .status-panel {
+      font-size: 0.8rem;
+      color: #cbd5e1;
+      display: flex;
+      gap: 16px;
+    }
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #hud {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      pointer-events: none;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@niivue/niivue@0.44.0/dist/niivue.umd.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>NEURI</h1>
+      <span id="scene-title">Waiting for scene manifest...</span>
+    </div>
+    <div class="controls">
+      <button id="btn-multi" class="active" onclick="setViewMode(0)">Multiplanar</button>
+      <button id="btn-axial" onclick="setViewMode(1)">Axial</button>
+      <button id="btn-coronal" onclick="setViewMode(2)">Coronal</button>
+      <button id="btn-sagittal" onclick="setViewMode(3)">Sagittal</button>
+      <button id="btn-3d" onclick="setViewMode(4)">3D</button>
+    </div>
+    <div class="status-panel">
+      <span id="coords-mni">MNI: (0.0, 0.0, 0.0)</span>
+      <span id="intensity-val">Intensity: --</span>
+    </div>
+  </header>
+
+  <div id="canvas-container">
+    <canvas id="gl"></canvas>
+    <div id="hud">
+      <div><strong>Scene ID:</strong> <span id="hud-scene-id">None</span></div>
+      <div><strong>Layers Loaded:</strong> <span id="hud-layers">0</span></div>
+      <div><strong>Crosshair:</strong> Active</div>
+    </div>
+  </div>
+
+  <script>
+    let nv = null;
+    let currentSceneId = null;
+
+    async function initNiiVue() {
+      if (typeof niivue === "undefined") {
+        document.getElementById("scene-title").innerText = "Error: NiiVue WebGL2 library not loaded.";
+        return;
+      }
+      nv = new niivue.Niivue({
+        backColor: [0.06, 0.09, 0.16, 1.0],
+        show3Dcrosshair: true,
+        loadingText: "Loading neuroimaging volume...",
+        onLocationChange: (data) => {
+          if (data && data.mm) {
+            document.getElementById("coords-mni").innerText =
+              `MNI: (${data.mm[0].toFixed(1)}, ${data.mm[1].toFixed(1)}, ${data.mm[2].toFixed(1)})`;
+          }
+          if (data && data.values && data.values.length > 0) {
+            document.getElementById("intensity-val").innerText =
+              `Intensity: ${data.values[0].value.toFixed(2)}`;
+          }
+        }
+      });
+      nv.attachTo("gl");
+      pollScene();
+      setInterval(pollScene, 2000);
+    }
+
+    function setViewMode(mode) {
+      if (!nv) return;
+      nv.setSliceType(mode);
+      const buttons = ["btn-multi", "btn-axial", "btn-coronal", "btn-sagittal", "btn-3d"];
+      buttons.forEach((id, idx) => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          if (idx === mode) btn.classList.add("active");
+          else btn.classList.remove("active");
+        }
+      });
+    }
+
+    async function pollScene() {
+      try {
+        const res = await fetch("/api/scene");
+        if (!res.ok) return;
+        const scene = await res.json();
+        if (!scene || !scene.scene_id) return;
+        if (scene.scene_id === currentSceneId) return;
+
+        currentSceneId = scene.scene_id;
+        document.getElementById("scene-title").innerText = scene.title || "Active Neuroimaging Scene";
+        document.getElementById("hud-scene-id").innerText = scene.scene_id;
+        document.getElementById("hud-layers").innerText = (scene.volumes ? scene.volumes.length : 0);
+
+        if (scene.volumes && scene.volumes.length > 0) {
+          const volumeList = scene.volumes.map(v => ({
+            url: v.artifact_uri.startsWith("http") ? v.artifact_uri : `/api/file?uri=${encodeURIComponent(v.artifact_uri)}`,
+            colormap: v.colormap || "gray",
+            opacity: v.opacity !== undefined ? v.opacity : 1.0,
+            cal_min: v.cal_min,
+            cal_max: v.cal_max
+          }));
+          await nv.loadVolumes(volumeList);
+        }
+
+        if (scene.slice_type) {
+          const modeMap = {
+            "multiplanar": 0,
+            "axial": 1,
+            "coronal": 2,
+            "sagittal": 3,
+            "render3d": 4
+          };
+          const m = modeMap[scene.slice_type];
+          if (m !== undefined) setViewMode(m);
+        }
+
+        if (scene.crosshair_mni) {
+          nv.setCrosshairLocation(scene.crosshair_mni);
+        }
+      } catch (err) {
+        console.warn("Scene poll failed:", err);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", initNiiVue);
+  </script>
+</body>
+</html>

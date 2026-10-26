@@ -1344,6 +1344,7 @@ class StreamEventNormalizer:
 
         raw_event: str = str(payload.get("event", ""))
         raw_type: str = str(payload.get("type", ""))
+        ev_name: str = raw_event or raw_type
 
         wf_id: str = str(payload.get("workflow_id") or self._workflow_id)
         n_id: str = str(payload.get("node_id") or self._node_id)
@@ -1361,13 +1362,87 @@ class StreamEventNormalizer:
             except ValueError:
                 pass
 
-        if raw_type in ("session_start",) or raw_event in (
-            "start",
-            "session.created",
-        ):
+        if ev_name in ("session_start", "start", "session.created", "init"):
             self.set_context(wf_id, n_id, h_id)
 
-        elif raw_type in ("chunk",) or raw_event in (
+        elif ev_name == "step_update":
+            step_obj: dict[str, Any] = (
+                payload.get("step_update", {})
+                if isinstance(payload.get("step_update"), dict)
+                else {}
+            )
+            think_str: str = str(
+                step_obj.get("thinking_delta")
+                or step_obj.get("thinking")
+                or ""
+            )
+            if think_str:
+                self._parser.feed(f"<thinking>{think_str}</thinking>")
+                events.append(
+                    TelemetryEvent(
+                        event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                        workflow_id=wf_id,
+                        node_id=n_id,
+                        harness_id=h_id,
+                        timestamp=ts,
+                        event_type="thinking_delta",
+                        thinking_text=think_str,
+                    )
+                )
+            txt_str: str = str(step_obj.get("text_delta") or "")
+            if txt_str:
+                parsed_step: ParsedStreamChunk = self._parser.feed(txt_str)
+                if parsed_step.thinking_delta:
+                    events.append(
+                        TelemetryEvent(
+                            event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                            workflow_id=wf_id,
+                            node_id=n_id,
+                            harness_id=h_id,
+                            timestamp=ts,
+                            event_type="thinking_delta",
+                            thinking_text=parsed_step.thinking_delta,
+                        )
+                    )
+                content_delta = parsed_step.content_delta
+            usage_obj: Any = step_obj.get("usage")
+            if isinstance(usage_obj, dict):
+                events.append(
+                    TelemetryEvent(
+                        event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                        workflow_id=wf_id,
+                        node_id=n_id,
+                        harness_id=h_id,
+                        timestamp=ts,
+                        event_type="token_usage",
+                        input_tokens=int(usage_obj.get("input_tokens") or 0),
+                        cached_tokens=int(
+                            usage_obj.get("cache_read_tokens")
+                            or usage_obj.get("cached_tokens")
+                            or 0
+                        ),
+                        reasoning_tokens=int(
+                            usage_obj.get("thinking_tokens")
+                            or usage_obj.get("reasoning_tokens")
+                            or 0
+                        ),
+                        output_tokens=int(usage_obj.get("output_tokens") or 0),
+                        estimated_cost_usd=0.0,
+                    )
+                )
+
+        elif ev_name == "result":
+            res_obj: dict[str, Any] = (
+                payload.get("result", {})
+                if isinstance(payload.get("result"), dict)
+                else {}
+            )
+            resp_str: str = str(res_obj.get("response") or "")
+            if resp_str and not self._parser.get_clean_text().strip():
+                parsed_res: ParsedStreamChunk = self._parser.feed(resp_str)
+                content_delta = parsed_res.content_delta
+
+        elif ev_name in (
             "chunk",
             "response.output_item.added",
             "response.text.delta",
@@ -1388,8 +1463,9 @@ class StreamEventNormalizer:
                 )
             content_delta = parsed.content_delta
 
-        elif raw_type in ("tool_call",) or raw_event in (
+        elif ev_name in (
             "tool_lifecycle",
+            "tool_call",
             "tool.call.started",
             "tool.call.completed",
             "tool.call.failed",
@@ -1416,8 +1492,9 @@ class StreamEventNormalizer:
                 )
             )
 
-        elif raw_type in ("usage",) or raw_event in (
+        elif ev_name in (
             "token_usage",
+            "usage",
             "response.token_usage",
         ):
             cost_val: float = float(
@@ -1441,9 +1518,7 @@ class StreamEventNormalizer:
                 )
             )
 
-        elif raw_type in ("circuit_breaker",) or raw_event in (
-            "circuit_breaker",
-        ):
+        elif ev_name in ("circuit_breaker",):
             events.append(
                 TelemetryEvent(
                     event_id=f"tevt_{uuid.uuid4().hex[:16]}",
@@ -2010,7 +2085,9 @@ class TelemetryTap:
         )
         result_event: TelemetryEvent | None = None
 
-        if event_name in ("session_start", "start", "session.created"):
+        if event_name in (
+            "session_start", "start", "session.created", "init"
+        ):
             if "workflow_id" in record:
                 self.workflow_id = str(record["workflow_id"])
             if "node_id" in record:
@@ -2019,6 +2096,109 @@ class TelemetryTap:
                 self.harness_id = str(record["harness"])
             elif "harness_id" in record:
                 self.harness_id = str(record["harness_id"])
+
+        elif event_name == "step_update":
+            step_obj: dict[str, Any] = (
+                record["step_update"]
+                if isinstance(record.get("step_update"), dict)
+                else {}
+            )
+            think_val: str = str(
+                step_obj.get("thinking_delta")
+                or step_obj.get("thinking")
+                or ""
+            )
+            if think_val:
+                self._thinking_parser.feed(f"<thinking>{think_val}</thinking>")
+                result_event = TelemetryEvent(
+                    event_id=f"evt-{uuid.uuid4().hex[:12]}",
+                    workflow_id=self.workflow_id,
+                    node_id=self.node_id,
+                    harness_id=self.harness_id,
+                    event_type="thinking_delta",
+                    thinking_text=think_val,
+                )
+                self._log_event(result_event)
+
+            if step_obj.get("text_delta") is not None:
+                txt_delta: str = str(step_obj.get("text_delta", ""))
+                parsed_step: ParsedStreamChunk = self._thinking_parser.feed(
+                    txt_delta
+                )
+                if parsed_step.thinking_delta and result_event is None:
+                    result_event = TelemetryEvent(
+                        event_id=f"evt-{uuid.uuid4().hex[:12]}",
+                        workflow_id=self.workflow_id,
+                        node_id=self.node_id,
+                        harness_id=self.harness_id,
+                        event_type="thinking_delta",
+                        thinking_text=parsed_step.thinking_delta,
+                    )
+                    self._log_event(result_event)
+
+            if isinstance(step_obj.get("usage"), dict):
+                u_obj: dict[str, Any] = step_obj["usage"]
+                in_tok_s: int = int(u_obj.get("input_tokens", 0))
+                out_tok_s: int = int(u_obj.get("output_tokens", 0))
+                cached_s: int = int(u_obj.get("cache_read_tokens", 0))
+                reason_s: int = int(u_obj.get("thinking_tokens", 0))
+                self.update_token_usage(
+                    input_tokens=in_tok_s,
+                    output_tokens=out_tok_s,
+                    cached_tokens=cached_s,
+                    reasoning_tokens=reason_s,
+                    is_cumulative=True,
+                )
+                if result_event is None:
+                    result_event = TelemetryEvent(
+                        event_id=f"evt-{uuid.uuid4().hex[:12]}",
+                        workflow_id=self.workflow_id,
+                        node_id=self.node_id,
+                        harness_id=self.harness_id,
+                        event_type="token_usage",
+                        input_tokens=in_tok_s,
+                        output_tokens=out_tok_s,
+                        cached_tokens=cached_s,
+                        reasoning_tokens=reason_s,
+                        estimated_cost_usd=self._cost_usd,
+                    )
+                    self._log_event(result_event)
+
+        elif event_name == "result":
+            res_obj: dict[str, Any] = (
+                record["result"]
+                if isinstance(record.get("result"), dict)
+                else {}
+            )
+            resp_str: str = str(res_obj.get("response", ""))
+            if resp_str and not self._thinking_parser.get_clean_text().strip():
+                self._thinking_parser.feed(resp_str)
+            if isinstance(res_obj.get("usage"), dict):
+                ru_obj: dict[str, Any] = res_obj["usage"]
+                in_tok_r: int = int(ru_obj.get("input_tokens", 0))
+                out_tok_r: int = int(ru_obj.get("output_tokens", 0))
+                cached_r: int = int(ru_obj.get("cache_read_tokens", 0))
+                reason_r: int = int(ru_obj.get("thinking_tokens", 0))
+                self.update_token_usage(
+                    input_tokens=in_tok_r,
+                    output_tokens=out_tok_r,
+                    cached_tokens=cached_r,
+                    reasoning_tokens=reason_r,
+                    is_cumulative=True,
+                )
+                result_event = TelemetryEvent(
+                    event_id=f"evt-{uuid.uuid4().hex[:12]}",
+                    workflow_id=self.workflow_id,
+                    node_id=self.node_id,
+                    harness_id=self.harness_id,
+                    event_type="token_usage",
+                    input_tokens=in_tok_r,
+                    output_tokens=out_tok_r,
+                    cached_tokens=cached_r,
+                    reasoning_tokens=reason_r,
+                    estimated_cost_usd=self._cost_usd,
+                )
+                self._log_event(result_event)
 
         elif event_name in (
             "chunk", "response.output_item.added", "response.text.delta"
@@ -2502,6 +2682,51 @@ class TelemetryTap:
                 Cost in USD.
         """
         cost: float = self._cost_usd
+        return cost
+
+    def get_total_tokens(self) -> int:
+        """Return total tokens consumed (input + output).
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            int: integer object
+                Total token count.
+        """
+        tokens: int = self.get_accumulated_tokens()
+        return tokens
+
+    def get_cost_usd(self) -> float:
+        """Return estimated USD cost consumed.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            float: float object
+                Cost in USD.
+        """
+        cost: float = self.get_accumulated_cost()
+        return cost
+
+    def get_total_cost(self) -> float:
+        """Return estimated USD cost consumed.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            float: float object
+                Cost in USD.
+        """
+        cost: float = self.get_accumulated_cost()
         return cost
 
     def get_thinking_text(self) -> str:

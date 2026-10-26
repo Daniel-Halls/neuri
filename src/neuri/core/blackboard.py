@@ -466,6 +466,7 @@ class Blackboard:
         TaskState.PENDING: {
             TaskState.PREFLIGHT_CHECK,
             TaskState.RUNNING,
+            TaskState.WAITING_OPERATOR,
             TaskState.CANCELLED,
         },
         TaskState.PREFLIGHT_CHECK: {
@@ -496,6 +497,7 @@ class Blackboard:
             TaskState.CANCELLED,
         },
         TaskState.WAITING_OPERATOR: {
+            TaskState.PENDING,
             TaskState.RETRYING,
             TaskState.RUNNING,
             TaskState.COMPLETED,
@@ -504,6 +506,7 @@ class Blackboard:
         },
         TaskState.COMPLETED: set(),
         TaskState.FAILED: {
+            TaskState.PENDING,
             TaskState.RETRYING,
         },
         TaskState.CANCELLED: set(),
@@ -718,7 +721,12 @@ class Blackboard:
     # Workflow Operations
     # -------------------------------------------------------------------------
 
-    def create_workflow(self, workflow_id: str, prompt: str) -> None:
+    def create_workflow(
+        self,
+        workflow_id: str,
+        prompt: str = "",
+        description: str = "",
+    ) -> None:
         """Register a new research workflow session in the blackboard.
 
         Parameters
@@ -727,6 +735,9 @@ class Blackboard:
             Unique workflow identifier.
         prompt: str
             Original user prompt describing the neuroscience goal.
+            Defaults to empty string.
+        description: str
+            Optional description alias for prompt. Defaults to empty string.
 
         Returns
         --------
@@ -734,6 +745,7 @@ class Blackboard:
                 Inserts workflow record into database.
         """
         now_iso: str = datetime.now(timezone.utc).isoformat()
+        actual_prompt: str = prompt if prompt else description
         with self.connection() as conn:
             conn.execute(
                 """
@@ -742,7 +754,7 @@ class Blackboard:
                     total_tokens, estimated_cost_usd
                 ) VALUES (?, ?, 'PENDING', ?, ?, 0, 0.0);
                 """,
-                (workflow_id, prompt, now_iso, now_iso),
+                (workflow_id, actual_prompt, now_iso, now_iso),
             )
 
     def get_workflow(self, workflow_id: str) -> dict[str, Any] | None:
@@ -1114,10 +1126,11 @@ class Blackboard:
                 """
                 UPDATE task_nodes
                 SET envelope_json = ?,
+                    attempt = ?,
                     updated_at = ?
                 WHERE node_id = ?;
                 """,
-                (envelope_json, now_iso, node_id),
+                (envelope_json, envelope.attempt_number, now_iso, node_id),
             )
             if cursor.rowcount == 0:
                 raise NodeNotFoundError(
@@ -2238,6 +2251,31 @@ class Blackboard:
             jobs: list[dict[str, Any]] = [dict(r) for r in rows]
             return jobs
 
+    def get_active_remote_jobs(self) -> list[dict[str, Any]]:
+        """Retrieve all remote jobs currently in SUBMITTED, PENDING, or RUNNING state.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[dict[str, Any]]: list object
+                List of active remote job metadata dictionaries.
+        """
+        query: str = """
+            SELECT job_id, node_id, host, scheduler_type, scheduler_job_id,
+                   status_uri, state, created_at, updated_at
+            FROM remote_jobs
+            WHERE state IN ('SUBMITTED', 'PENDING', 'RUNNING')
+            ORDER BY created_at ASC;
+        """
+        with self.connection() as conn:
+            cursor: sqlite3.Cursor = conn.execute(query)
+            rows: list[Any] = cursor.fetchall()
+            jobs: list[dict[str, Any]] = [dict(r) for r in rows]
+            return jobs
+
     # -------------------------------------------------------------------------
     # Citations Ledger Operations
     # -------------------------------------------------------------------------
@@ -2492,10 +2530,17 @@ class Blackboard:
             int: integer object
                 Total number of verified citations written to the file.
         """
-        citations: list[dict[str, Any]] = self.list_citations(verified_only=True)
+        citations: list[dict[str, Any]] = self.list_citations(
+            verified_only=True
+        )
         entries: list[str] = ["% Neuri Verified Citations Ledger\n\n"]
         for entry in citations:
-            entries.append(entry["bibtex"].strip() + "\n\n")
+            bt: str = entry["bibtex"].strip()
+            title_val: str = entry.get("title", "")
+            if title_val and "title" not in bt.lower():
+                if bt.endswith("}"):
+                    bt = bt[:-1].rstrip() + f",\n  title={{{title_val}}}\n}}"
+            entries.append(bt + "\n\n")
 
         bib_path.parent.mkdir(parents=True, exist_ok=True)
         bib_path.write_text("".join(entries), encoding="utf-8")
@@ -2932,6 +2977,12 @@ class Blackboard:
             "created_at": row["created_at"],
         }
         return citation_record
+
+    register_node = create_node
+    register_edge = add_edge
+    register_remote_artifact = register_artifact
+    list_remote_artifacts = list_artifacts
+    get_remote_artifact = get_artifact
 
 
 __all__: list[str] = [

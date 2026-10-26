@@ -423,3 +423,76 @@ def test_adapter_registry_list_all() -> None:
     assert "ollama" in all_keys
     assert "openclaw" in all_keys
     assert "opencode" in all_keys
+
+
+def test_agy_stream_json_step_update_and_result_parsing() -> None:
+    """Test parsing real agy stream-json NDJSON lines into clean chat text.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts TelemetryTap accumulates text_delta and usage from agy.
+    """
+    from neuri.core.telemetry import TelemetryTap
+
+    tap: TelemetryTap = TelemetryTap(
+        workflow_id="wf-agy-real",
+        node_id="node-agy-real",
+        harness_id="agy",
+    )
+    lines: list[str] = [
+        json.dumps({"event": "init", "conversation_id": "conv-123"}),
+        json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 1,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "text_delta": "Hello from ",
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "step_index": 1,
+                    "state": "DONE",
+                    "step_type": "agent_response",
+                    "text_delta": "Neuri!",
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 10,
+                        "thinking_tokens": 0,
+                        "cache_read_tokens": 0,
+                    },
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "event": "result",
+                "result": {
+                    "status": "SUCCESS",
+                    "response": "Hello from Neuri!\n",
+                    "usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 10,
+                        "thinking_tokens": 0,
+                        "cache_read_tokens": 0,
+                    },
+                },
+            }
+        ),
+    ]
+    for line in lines:
+        tap.process_chunk(line + "\n")
+
+    assert tap.get_clean_text() == "Hello from Neuri!"
+    assert tap.get_total_tokens() == 110
+

@@ -1,4 +1,4 @@
-# Neuri (神经元)
+# Neuri
 
 > **Vendor-Agnostic, Multi-Agent Neuroscience Meta-Harness**
 

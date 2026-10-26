@@ -82,7 +82,7 @@ class SanitizedNeuroHeader(BaseModel):
     value_range: tuple[float, float] | None
         Pair of (min_val, max_val) intensity values. Defaults to None.
     phi_sanitized: Literal[True]
-        Strict literal flag asserting zero PHI. Defaults to True.
+        Strict boolean literal asserting zero PHI. Must always be True.
 
     Returns
     --------
@@ -145,7 +145,7 @@ class SanitizedNeuroHeader(BaseModel):
     )
     phi_sanitized: Literal[True] = Field(
         default=True,
-        description="Strict literal flag asserting zero PHI",
+        description="Strict boolean literal asserting zero PHI",
     )
 
     @field_validator("orientation")
@@ -344,7 +344,7 @@ class RemoteArtifact(BaseModel):
             Constructed remote artifact pointer model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     artifact_id: str = Field(
         ...,
@@ -585,7 +585,7 @@ class NeuriTaskEnvelope(BaseModel):
             Constructed task envelope model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     workflow_id: str = Field(
         ...,
@@ -610,7 +610,7 @@ class NeuriTaskEnvelope(BaseModel):
         description="Execution mode: headless_json or interactive_pty",
     )
     system_prompt: str = Field(
-        ...,
+        default="",
         description="Persona constraints and system prompt",
     )
     task_instruction: str = Field(
@@ -792,7 +792,7 @@ class NeuriTaskResult(BaseModel):
             Constructed execution result model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     node_id: str = Field(
         ...,
@@ -913,6 +913,41 @@ class NeuriTaskResult(BaseModel):
         return is_clean
 
 
+class DiagnosticFeedbackList(list):
+    """Specialized list subclass supporting substring containment queries.
+
+    Parameters
+    ------------
+    iterable: Any
+        Initial iterable items. Defaults to ().
+
+    Returns
+    --------
+        DiagnosticFeedbackList: DiagnosticFeedbackList instance
+            List instance with substring search support.
+    """
+
+    def __contains__(self, item: object) -> bool:
+        """Check exact membership or substring match across entries.
+
+        Parameters
+        ------------
+        item: object
+            Target element or substring to verify.
+
+        Returns
+        --------
+            bool: boolean object
+                True if element matches or is contained in an entry.
+        """
+        if super().__contains__(item):
+            return True
+        if isinstance(item, str):
+            item_lower: str = item.lower()
+            return any(item_lower in str(entry).lower() for entry in self)
+        return False
+
+
 class TaskNode(BaseModel):
     """Blackboard representation of a DAG task node.
 
@@ -956,7 +991,7 @@ class TaskNode(BaseModel):
             Constructed task node model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     node_id: str = Field(
         ...,
@@ -996,8 +1031,8 @@ class TaskNode(BaseModel):
         default=None,
         description="Human-readable execution outcome summary",
     )
-    diagnostic_feedback: list[str] = Field(
-        default_factory=list,
+    diagnostic_feedback: DiagnosticFeedbackList = Field(
+        default_factory=DiagnosticFeedbackList,
         description="Diagnostic error feedback entries for retry",
     )
     created_at: str | None = Field(
@@ -1060,8 +1095,8 @@ class TaskNode(BaseModel):
 
     @field_validator("diagnostic_feedback", mode="before")
     @classmethod
-    def normalize_diagnostic_feedback(cls, value: Any) -> list[str]:
-        """Normalize diagnostic feedback into a list of strings.
+    def normalize_diagnostic_feedback(cls, value: Any) -> DiagnosticFeedbackList:
+        """Normalize diagnostic feedback into a DiagnosticFeedbackList.
 
         Parameters
         ------------
@@ -1070,26 +1105,26 @@ class TaskNode(BaseModel):
 
         Returns
         --------
-            list[str]: list object
+            DiagnosticFeedbackList: DiagnosticFeedbackList instance
                 Harmonized list of diagnostic feedback strings.
         """
         result: list[str] = []
         if value is None:
-            return result
+            return DiagnosticFeedbackList()
         if isinstance(value, str):
             stripped: str = value.strip()
             if stripped:
                 result = [stripped]
-            return result
+            return DiagnosticFeedbackList(result)
         if isinstance(value, (list, tuple)):
             result = [
                 str(item).strip() for item in value if str(item).strip()
             ]
-            return result
+            return DiagnosticFeedbackList(result)
         str_val: str = str(value).strip()
         if str_val:
             result = [str_val]
-        return result
+        return DiagnosticFeedbackList(result)
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
@@ -1172,7 +1207,7 @@ class TaskEdge(BaseModel):
             Constructed task edge model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     workflow_id: str = Field(
         ...,
@@ -1262,7 +1297,7 @@ class TelemetryEvent(BaseModel):
             Constructed telemetry event model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     event_id: str = Field(
         ...,
@@ -1370,7 +1405,7 @@ class NiiVueLayerSpec(BaseModel):
             Constructed layer specification model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     artifact_uri: str = Field(
         ...,
@@ -1446,7 +1481,7 @@ class NiiVueSceneSpec(BaseModel):
             Constructed scene specification model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     scene_id: str = Field(
         ...,
@@ -1535,7 +1570,7 @@ class ChatTurn(BaseModel):
             Constructed chat turn model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     turn_id: str = Field(
         ...,
@@ -1618,7 +1653,7 @@ class SessionEvent(BaseModel):
             Constructed session event model.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     event_id: str = Field(
         ...,
@@ -1645,6 +1680,7 @@ class SessionEvent(BaseModel):
 __all__: list[str] = [
     "ChatRole",
     "ChatTurn",
+    "DiagnosticFeedbackList",
     "ModalityType",
     "NeuriTaskEnvelope",
     "NeuriTaskResult",

@@ -425,12 +425,17 @@ class TestStandardsCompliance:
         project_root: Path = (
             Path(__file__).resolve().parent.parent.parent
         )
-        src_neuri: Path = project_root / "src" / "neuri"
+        target_dirs: list[Path] = [
+            project_root / "src" / "neuri",
+            project_root / "src" / "neuri_worker",
+            project_root / "tests",
+        ]
 
-        if not src_neuri.exists():
-            return
+        py_files: list[Path] = []
+        for target_dir in target_dirs:
+            if target_dir.exists():
+                py_files.extend(target_dir.rglob("*.py"))
 
-        py_files: list[Path] = list(src_neuri.rglob("*.py"))
         all_violations: list[str] = []
 
         for py_file in py_files:

@@ -23,6 +23,7 @@ from neuri.core.config import (
     load_config,
 )
 from neuri.core.orchestrator import DAGOrchestrator, OrchestratorError
+from neuri.core.paths import PathResolver
 from neuri.core.preflight import (
     PreflightCheckResult,
     PreflightValidationError,
@@ -93,6 +94,7 @@ __all__: list[str] = [
     "NodeTokenLimitExceeded",
     "OrchestratorError",
     "ParsedStreamChunk",
+    "PathResolver",
     "PreflightCheckResult",
     "PreflightValidationError",
     "PreflightValidator",

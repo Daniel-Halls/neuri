@@ -678,9 +678,10 @@ class TestGetReadyNodesAdversarial:
         for i in range(4):
             bb.update_node_state(f"P{i}", TaskState.RUNNING)
             bb.update_node_state(f"P{i}", TaskState.COMPLETED)
-            assert bb.get_ready_nodes("wf-multi-p") == [
-                bb.get_node("P4")  # P4 is still pending
-            ]
+
+        assert bb.get_ready_nodes("wf-multi-p") == [
+            bb.get_node("P4")  # P4 is still pending
+        ]
 
         # Complete P4 -> Child is now ready
         bb.update_node_state("P4", TaskState.RUNNING)
@@ -789,6 +790,18 @@ class TestBlackboardConcurrencyAdversarial:
         nodes_per_thread: int = 10
 
         def insert_worker(thread_idx: int) -> list[str]:
+            """Insert batch of task nodes in concurrent worker thread.
+
+            Parameters
+            ------------
+            thread_idx: int
+                Index of worker thread.
+
+            Returns
+            --------
+                list[str]: list object
+                    Inserted node identifiers.
+            """
             created: list[str] = []
             for j in range(nodes_per_thread):
                 nid: str = f"t{thread_idx}-node{j}"
@@ -831,6 +844,17 @@ class TestBlackboardConcurrencyAdversarial:
         bb.create_workflow("wf-con-rw", "Read write concurrency test")
 
         def writer() -> None:
+            """Insert 25 nodes sequentially into workflow.
+
+            Parameters
+            ------------
+            None
+
+            Returns
+            --------
+                None: NoneType object
+                    Inserts nodes into Blackboard.
+            """
             for i in range(25):
                 bb.create_node(
                     TaskNode(
@@ -842,6 +866,17 @@ class TestBlackboardConcurrencyAdversarial:
                 )
 
         def reader() -> list[int]:
+            """Poll ready nodes repeatedly during concurrent writes.
+
+            Parameters
+            ------------
+            None
+
+            Returns
+            --------
+                list[int]: list object
+                    Counts of ready nodes observed per poll.
+            """
             counts: list[int] = []
             for _ in range(25):
                 ready = bb.get_ready_nodes("wf-con-rw")
@@ -888,6 +923,18 @@ class TestBlackboardConcurrencyAdversarial:
             )
 
         def transition_worker(node_idx: int) -> None:
+            """Transition a single task node through RUNNING to COMPLETED.
+
+            Parameters
+            ------------
+            node_idx: int
+                Index of target node.
+
+            Returns
+            --------
+                None: NoneType object
+                    Updates node state in Blackboard.
+            """
             nid: str = f"state-node-{node_idx}"
             bb.update_node_state(nid, TaskState.RUNNING)
             bb.update_node_state(nid, TaskState.COMPLETED)

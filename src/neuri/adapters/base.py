@@ -247,7 +247,10 @@ class BaseHarnessAdapter(ABC):
             NeuriTaskResult: NeuriTaskResult instance
                 Consolidated execution result capturing status, output, and cost.
         """
-        cmd: list[str] = self.build_headless_command(envelope)
+        if envelope.execution_mode == "interactive_pty":
+            cmd: list[str] = self.build_interactive_command(envelope)
+        else:
+            cmd = self.build_headless_command(envelope)
         env: dict[str, str] = self.build_environment(envelope)
         cwd: str = str(working_dir) if working_dir is not None else os.getcwd()
 
@@ -359,16 +362,14 @@ class BaseHarnessAdapter(ABC):
             return cb_res
 
         success_flag: bool = exit_code == 0
-        clean_text: str = tap.get_clean_text()
+        clean_text: str = tap.get_clean_text().strip()
         err_msg: str | None = "".join(stderr_lines) if not success_flag else None
 
         result: NeuriTaskResult = NeuriTaskResult(
             node_id=envelope.node_id,
             success=success_flag,
             exit_code=exit_code,
-            summary=(
-                clean_text[:500] if clean_text else f"Exit code {exit_code}"
-            ),
+            summary=clean_text if clean_text else f"Exit code {exit_code}",
             total_tokens=tap.get_total_tokens(),
             cost_usd=tap.get_cost_usd(),
             error_message=err_msg,

@@ -11,7 +11,7 @@ skills:
   - id: neuroimaging-preproc
     aliases: [mri_structural_func]
     name: Structural MRI Preprocessing
-    description: Brain extraction, FreeSurfer cortical reconstruction, ANTs registration.
+    description: Brain extraction, FreeSurfer reconstruction, ANTs registration.
     modalities: [T1w, T2w]
     triggers: [brain extraction, surface reconstruction, spatial normalization]
 

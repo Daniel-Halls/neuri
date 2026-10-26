@@ -5,8 +5,10 @@ Provides structured command dispatch (/init, /skills, /status, /harness,
 interface and future Desktop/Web GUIs.
 """
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Coroutine
 
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
@@ -14,6 +16,9 @@ import yaml
 from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig, init_project_workspace, load_config
 from neuri.core.orchestrator import DAGOrchestrator
+from neuri.core.paths import PathResolver
+from neuri.remote.bootstrap import RemoteHostBootstrapper
+from neuri.remote.slurm_bridge import DetachAndReconcileManager
 
 
 class SlashCommandResult(BaseModel):
@@ -79,6 +84,9 @@ class SlashCommandRouter:
         "/skills",
         "/status",
         "/harness",
+        "/remote",
+        "/jobs",
+        "/view",
         "/retry",
         "/cancel",
         "/clear",
@@ -122,7 +130,7 @@ class SlashCommandRouter:
         self._skills_index_path: Path = (
             skills_index_path
             if skills_index_path is not None
-            else Path("skills/index.yaml")
+            else PathResolver.get_default_skills_index()
         )
 
     def is_slash_command(self, text: str) -> bool:
@@ -174,6 +182,12 @@ class SlashCommandRouter:
             return self._handle_status()
         elif cmd == "/harness":
             return self._handle_harness(args)
+        elif cmd == "/remote":
+            return self._handle_remote(args)
+        elif cmd == "/jobs":
+            return self._handle_jobs(args)
+        elif cmd == "/view":
+            return self._handle_view(args)
         elif cmd == "/retry":
             return self._handle_retry(args)
         elif cmd == "/cancel":
@@ -325,16 +339,27 @@ class SlashCommandRouter:
         """
         is_init: bool = (self._workspace_dir / ".neuri").is_dir()
         remote_host: str = self._config.project.default_remote_host
-        harness_default: str = self._config.harness_routing.default_harness
 
+        harness_default: str = "antigravity"
+        if isinstance(self._config.harness_routing, dict):
+            pe_cfg = self._config.harness_routing.get("pipeline_engineer")
+            if pe_cfg is not None:
+                harness_default = getattr(pe_cfg, "harness", str(pe_cfg))
+        elif hasattr(self._config.harness_routing, "default_harness"):
+            harness_default = getattr(
+                self._config.harness_routing, "default_harness"
+            )
+
+        init_status: str = "Yes" if is_init else "No (type /init to initialize)"
+        cost_limit: str = f"${self._config.budgets.max_workflow_cost_usd:.2f}"
         msg: str = (
             f"### Neuri System Status\n\n"
             f"- **Workspace Directory:** `{self._workspace_dir}`\n"
-            f"- **Initialized (.neuri):** `{'Yes' if is_init else 'No (type /init to initialize)'}`\n"
+            f"- **Initialized (.neuri):** `{init_status}`\n"
             f"- **Default Remote Host:** `{remote_host}`\n"
             f"- **Default Harness:** `{harness_default}`\n"
             f"- **Max Node Tokens:** `{self._config.budgets.max_node_tokens:,}`\n"
-            f"- **Max Workflow Cost:** `${self._config.budgets.max_workflow_cost_usd:.2f}`\n"
+            f"- **Max Workflow Cost:** `{cost_limit}`\n"
         )
         return SlashCommandResult(
             command="/status",
@@ -360,12 +385,36 @@ class SlashCommandRouter:
             SlashCommandResult: SlashCommandResult instance
                 Routing table or confirmation card.
         """
-        routing: dict[str, str] = self._config.harness_routing.role_map
+        routing_map: dict[str, str] = {}
+        harness_default: str = "antigravity"
+
+        if isinstance(self._config.harness_routing, dict):
+            for role_name, r_cfg in self._config.harness_routing.items():
+                target_h = getattr(r_cfg, "harness", str(r_cfg))
+                routing_map[role_name] = target_h
+            if "pipeline_engineer" in routing_map:
+                harness_default = routing_map["pipeline_engineer"]
+        elif hasattr(self._config.harness_routing, "role_map"):
+            routing_map = dict(getattr(self._config.harness_routing, "role_map"))
+            harness_default = getattr(
+                self._config.harness_routing, "default_harness", "antigravity"
+            )
 
         if len(args) >= 2:
             role: str = args[0].strip()
             h_id: str = args[1].strip()
-            routing[role] = h_id
+            if isinstance(self._config.harness_routing, dict):
+                from neuri.core.config import HarnessRoutingConfig
+
+                self._config.harness_routing[role] = HarnessRoutingConfig(
+                    harness=h_id,
+                    execution_mode="interactive_pty",
+                )
+                routing_map[role] = h_id
+            elif hasattr(self._config.harness_routing, "role_map"):
+                self._config.harness_routing.role_map[role] = h_id
+                routing_map[role] = h_id
+
             msg: str = (
                 f"Updated harness routing: Sub-agent role `{role}` is now "
                 f"dispatched to harness `{h_id}`."
@@ -379,18 +428,272 @@ class SlashCommandRouter:
 
         lines: list[str] = [
             "### Harness Routing Map\n",
-            f"**Default Harness:** `{self._config.harness_routing.default_harness}`\n",
+            f"**Default Harness:** `{harness_default}`\n",
             "| Agent Role | Target Harness |",
             "| :--- | :--- |",
         ]
-        for r, h in routing.items():
+        for r, h in routing_map.items():
             lines.append(f"| `{r}` | `{h}` |")
 
         return SlashCommandResult(
             command="/harness",
             success=True,
             markdown_output="\n".join(lines),
-            data=dict(routing),
+            data=dict(routing_map),
+        )
+
+    def _run_sync_coroutine(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        """Execute an asynchronous coroutine synchronously.
+
+        Parameters
+        ------------
+        coro: Coroutine[Any, Any, Any]
+            Coroutine instance to execute.
+
+        Returns
+        --------
+            Any: Any object
+                Result returned by the coroutine.
+        """
+        try:
+            asyncio.get_running_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, coro)
+                result = future.result()
+                return result
+        except RuntimeError:
+            sync_res = asyncio.run(coro)
+            return sync_res
+
+    def _handle_remote(self, args: list[str]) -> SlashCommandResult:
+        """Inspect and manage configured remote compute hosts.
+
+        Parameters
+        ------------
+        args: list[str]
+            Subcommands ('list', 'bootstrap <host>').
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Remote host status or bootstrap outcome card.
+        """
+        subcmd: str = args[0].lower() if args else "list"
+
+        if subcmd == "list":
+            hosts: list[Any] = (
+                getattr(self._config, "remote_hosts", None) or []
+            )
+            if not hosts:
+                default_host: str = getattr(
+                    getattr(self._config, "project", None),
+                    "default_remote_host",
+                    "localhost",
+                )
+                bids_root: str | None = getattr(
+                    getattr(self._config, "project", None),
+                    "remote_bids_root",
+                    None,
+                )
+                md_out: str = (
+                    "### Configured Remote Hosts\n\n"
+                    f"- **Default Remote Host:** `{default_host}`\n"
+                    f"- **Remote BIDS Root:** `{bids_root or 'Not configured'}`\n\n"
+                    "*(No cluster hosts configured. Use "
+                    "`/remote bootstrap <host_alias>` to bootstrap compute.)*"
+                )
+                return SlashCommandResult(
+                    command="/remote",
+                    success=True,
+                    markdown_output=md_out,
+                    data={"hosts": []},
+                )
+            rows: list[str] = [
+                "| Host Name | Hostname | User | Scheduler | Work Dir |",
+                "| :--- | :--- | :--- | :--- | :--- |",
+            ]
+            host_data: list[dict[str, Any]] = []
+            for h in hosts:
+                rows.append(
+                    f"| `{h.name}` | `{h.hostname}` | `{h.user}` | "
+                    f"`{h.scheduler}` | `{h.work_dir}` |"
+                )
+                host_data.append(h.model_dump())
+            md_out: str = "### Configured Remote Hosts\n\n" + "\n".join(rows)
+            return SlashCommandResult(
+                command="/remote",
+                success=True,
+                markdown_output=md_out,
+                data={"hosts": host_data},
+            )
+
+        if subcmd == "bootstrap":
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/remote",
+                    success=False,
+                    markdown_output="Usage: `/remote bootstrap <host_alias>`",
+                )
+            target_host: str = args[1].strip()
+            bootstrapper: RemoteHostBootstrapper = RemoteHostBootstrapper()
+            try:
+                res: dict[str, Any] = self._run_sync_coroutine(
+                    bootstrapper.bootstrap_host(target_host)
+                )
+                status_md: str = (
+                    f"### Remote Host Bootstrap: `{target_host}`\n\n"
+                    f"- **Status:** `{'Success' if res.get('success') else 'Failed'}`\n"
+                    f"- **Neuri Worker Dir:** "
+                    f"`{res.get('worker_dir', '~/.neuri_worker')}`\n"
+                    f"- **Slurm:** `{'Detected' if res.get('has_slurm') else 'None'}`\n"
+                    f"- **Container Runtime:** "
+                    f"`{res.get('container_binary', 'None')}`\n"
+                )
+                return SlashCommandResult(
+                    command="/remote",
+                    success=bool(res.get("success", False)),
+                    markdown_output=status_md,
+                    data=res,
+                )
+            except Exception as err:
+                return SlashCommandResult(
+                    command="/remote",
+                    success=False,
+                    markdown_output=(
+                        f"Bootstrap failed for `{target_host}`: {err}"
+                    ),
+                    data={"error": str(err)},
+                )
+
+        return SlashCommandResult(
+            command="/remote",
+            success=False,
+            markdown_output=(
+                f"Unknown remote subcommand `{subcmd}`. "
+                "Use `/remote list` or `/remote bootstrap <host>`."
+            ),
+        )
+
+    def _handle_jobs(self, args: list[str]) -> SlashCommandResult:
+        """Inspect and reconcile asynchronous remote batch jobs.
+
+        Parameters
+        ------------
+        args: list[str]
+            Subcommands ('list', 'reconcile').
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Remote jobs status card or reconciliation report.
+        """
+        subcmd: str = args[0].lower() if args else "list"
+
+        if subcmd == "list":
+            jobs: list[dict[str, Any]] = self._blackboard.list_remote_jobs()
+            if not jobs:
+                return SlashCommandResult(
+                    command="/jobs",
+                    success=True,
+                    markdown_output="No remote jobs currently registered.",
+                    data={"jobs": []},
+                )
+            rows: list[str] = [
+                "| Job ID | Node ID | Host | Sched | Sched ID | State |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |",
+            ]
+            for j in jobs:
+                rows.append(
+                    f"| `{j.get('job_id')}` | `{j.get('node_id')}` | "
+                    f"`{j.get('host')}` | `{j.get('scheduler_type')}` | "
+                    f"`{j.get('scheduler_job_id')}` | `{j.get('state')}` |"
+                )
+            md_out: str = "### Registered Remote Jobs\n\n" + "\n".join(rows)
+            return SlashCommandResult(
+                command="/jobs",
+                success=True,
+                markdown_output=md_out,
+                data={"jobs": jobs},
+            )
+
+        if subcmd == "reconcile":
+            reconciler: DetachAndReconcileManager = DetachAndReconcileManager()
+            try:
+                report: list[dict[str, Any]] = self._run_sync_coroutine(
+                    reconciler.reconcile_active_jobs(self._blackboard)
+                )
+                md_lines: list[str] = [
+                    f"### Remote Jobs Reconciled ({len(report)} active)",
+                    "",
+                ]
+                for item in report:
+                    md_lines.append(
+                        f"- Job `{item.get('job_id')}` "
+                        f"(`{item.get('remote_id')}`): `{item.get('status')}`"
+                    )
+                if not report:
+                    md_lines.append("No active remote jobs to reconcile.")
+                return SlashCommandResult(
+                    command="/jobs",
+                    success=True,
+                    markdown_output="\n".join(md_lines),
+                    data={"reconciled": report},
+                )
+            except Exception as err:
+                return SlashCommandResult(
+                    command="/jobs",
+                    success=False,
+                    markdown_output=f"Reconciliation error: {err}",
+                    data={"error": str(err)},
+                )
+
+        return SlashCommandResult(
+            command="/jobs",
+            success=False,
+            markdown_output=(
+                f"Unknown jobs subcommand `{subcmd}`. "
+                "Use `/jobs list` or `/jobs reconcile`."
+            ),
+        )
+
+    def _handle_view(self, args: list[str]) -> SlashCommandResult:
+        """Launch or inspect local NiiVue WebGL2 visualization bridge.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional artifact URI or file path to view.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Visualization link and instructions card.
+        """
+        viewer_url: str = "http://localhost:8421"
+        target_uri: str = args[0].strip() if args else ""
+        if target_uri:
+            msg: str = (
+                f"### NiiVue Visualization Bridge\n\n"
+                f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
+                f"- **Target Artifact:** `{target_uri}`\n\n"
+                f"Open the link above in your browser to inspect this volume."
+            )
+            return SlashCommandResult(
+                command="/view",
+                success=True,
+                markdown_output=msg,
+                data={"viewer_url": viewer_url, "target_uri": target_uri},
+            )
+        msg_default: str = (
+            f"### NiiVue Visualization Bridge\n\n"
+            f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n\n"
+            f"Active WebGL2 neuroimaging session listening on port 8421."
+        )
+        return SlashCommandResult(
+            command="/view",
+            success=True,
+            markdown_output=msg_default,
+            data={"viewer_url": viewer_url},
         )
 
     def _handle_retry(self, args: list[str]) -> SlashCommandResult:
@@ -510,6 +813,9 @@ class SlashCommandRouter:
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
             "| `/status` | View workspace status, blackboard stats, and token usage |\n"
             "| `/harness` | View or update agent role-to-harness routing |\n"
+            "| `/remote` | View or bootstrap remote compute hosts |\n"
+            "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
+            "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
             "| `/retry <node_id>` | Resume a node paused in WAITING_OPERATOR |\n"
             "| `/cancel <node_id>` | Cancel a paused node in WAITING_OPERATOR |\n"
             "| `/clear` | Clear the chat screen (preserves SQLite state) |\n"

@@ -754,6 +754,18 @@ class TestAdversarialProvenanceExport:
             blackboard.create_workflow(w_id, f"Prompt for {w_id}")
 
         def export_worker(wf_id: str) -> None:
+            """Export provenance for a single workflow in thread worker.
+
+            Parameters
+            ------------
+            wf_id: str
+                Workflow identifier to export.
+
+            Returns
+            --------
+                None: NoneType object
+                    Writes provenance to history file.
+            """
             blackboard.export_provenance(wf_id, history_file)
 
         with ThreadPoolExecutor(max_workers=4) as executor:
