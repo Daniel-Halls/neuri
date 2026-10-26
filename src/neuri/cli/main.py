@@ -8,11 +8,12 @@ Flags `-p` / `--print` support headless execution for scripting and pipelines.
 import asyncio
 from pathlib import Path
 import sys
-from typing import Annotated
+from typing import Annotated, Any
 
 from rich.console import Console
 import typer
 
+from neuri.core.installer import NeuriInstaller
 from neuri.core.schemas import ChatTurn
 from neuri.core.session import NeuriSessionEngine
 from neuri.ui.terminal_chat import NeuriChatApp
@@ -52,9 +53,14 @@ class NeuriCLI:
             add_completion=False,
         )
         self.cli_app.callback(invoke_without_command=True)(self.main)
+        self.cli_app.command(
+            name="install",
+            help="Install base master prompt, skills, MCP, and rules into ~/.neuri.",
+        )(self.install)
 
     def main(
         self,
+        ctx: typer.Context,
         prompt: Annotated[
             str | None,
             typer.Option(
@@ -84,6 +90,8 @@ class NeuriCLI:
 
         Parameters
         ------------
+        ctx: typer.Context
+            Typer command execution context.
         prompt: str | None
             Prompt or slash command for headless execution. Defaults to None.
         version: bool
@@ -97,6 +105,11 @@ class NeuriCLI:
                 Dispatches to target execution mode.
         """
         if version:
+            self.console.print(f"neuri version {self.VERSION}")
+            return
+
+        if ctx.invoked_subcommand is not None:
+            return
             self.console.print(f"neuri version {self.VERSION}")
             return
 
@@ -147,6 +160,74 @@ class NeuriCLI:
         """
         app_instance: NeuriChatApp = NeuriChatApp(workspace_dir=workspace_dir)
         app_instance.run()
+
+    def install(
+        self,
+        force: Annotated[
+            bool,
+            typer.Option(
+                "--force",
+                "-f",
+                help="Overwrite existing configuration, skills, and prompts.",
+            ),
+        ] = False,
+        target: Annotated[
+            Path | None,
+            typer.Option(
+                "--target",
+                "-t",
+                help="Custom target directory. Defaults to ~/.neuri.",
+            ),
+        ] = None,
+    ) -> None:
+        """Install base Neuri prompts, skills, MCP, and rules into target directory.
+
+        Parameters
+        ------------
+        force: bool
+            Whether to overwrite existing files. Defaults to False.
+        target: Path | None
+            Custom target directory. Defaults to None (~/.neuri).
+
+        Returns
+        --------
+            None: NoneType object
+                Installs files and prints summary to console.
+        """
+        installer: NeuriInstaller = NeuriInstaller(target_dir=target)
+        summary: dict[str, Any] = installer.install(force=force)
+        target_dir: str = summary.get(
+            "target_dir", str(Path.home() / ".neuri")
+        )
+        installed: list[str] = summary.get("installed", [])
+
+        if installed:
+            installed_str: str = ", ".join(installed)
+            self.console.print(
+                "[green]✓ Neuri base environment installed successfully "
+                f"into:[/green] {target_dir}"
+            )
+            self.console.print(
+                f"  Installed subfolders: [bold]{installed_str}[/bold]"
+            )
+            self.console.print(
+                "  - global/: Master grounding prompt (master_prompt.md)"
+            )
+            self.console.print(
+                "  - skills/: Neuroscience skills catalog and manuals"
+            )
+            self.console.print(
+                "  - mcp/: MCP server configurations (mcp_servers.json)"
+            )
+            self.console.print("  - rules/: Operational rules directory")
+        else:
+            self.console.print(
+                "[yellow]Neuri environment is already present at:[/yellow] "
+                f"{target_dir}"
+            )
+            self.console.print(
+                "Use [bold]neuri install --force[/bold] to overwrite."
+            )
 
     def run(self) -> None:
         """Invoke the Typer CLI application.

@@ -148,6 +148,12 @@ class DAGOrchestrator:
         )
         self._critic_agent: CriticQAAgent = CriticQAAgent()
         self._specialist_agents: dict[str, BaseSpecialistAgent] = {
+            "coordinator": BaseSpecialistAgent(
+                role_name="coordinator",
+                system_prompt="You are the Neuri Coordinator.",
+                skill_ids=[],
+                mcp_tools=[],
+            ),
             "pipeline_engineer": PipelineEngineerAgent(),
             "neuroimaging_specialist": NeuroimagingSpecialistAgent(),
             "electrophys_specialist": ElectrophysSpecialistAgent(),
@@ -172,7 +178,7 @@ class DAGOrchestrator:
                 Corresponding domain specialist agent.
         """
         agent: BaseSpecialistAgent = self._specialist_agents.get(
-            agent_role, self._specialist_agents["neuroimaging_specialist"]
+            agent_role, self._specialist_agents["coordinator"]
         )
         return agent
 
@@ -205,7 +211,37 @@ class DAGOrchestrator:
 
         matched_skills: list[str] = self._match_skills_from_prompt(prompt)
         if not matched_skills:
-            matched_skills = ["bids-standard"]
+            node_id: str = f"node_{wf_id}_1_task"
+            agent_role: str = "coordinator"
+            route = self._config.harness_routing.get(agent_role)
+            harness_id: str = route.harness if route is not None else "agy"
+            exec_mode: str = route.mode if route is not None else "headless_json"
+            specialist: BaseSpecialistAgent = self._resolve_specialist_agent(
+                agent_role
+            )
+            base_env: NeuriTaskEnvelope = specialist.build_envelope(
+                workflow_id=wf_id,
+                node_id=node_id,
+                task_instruction=prompt,
+                harness_id=harness_id,
+                execution_mode=exec_mode,
+                config=self._config,
+            )
+            envelope: NeuriTaskEnvelope = base_env.model_copy(
+                update={"skill_paths": []}
+            )
+            node: TaskNode = TaskNode(
+                node_id=node_id,
+                workflow_id=wf_id,
+                agent_role=agent_role,
+                harness_id=harness_id,
+                state=TaskState.PENDING,
+                attempt=0,
+                max_retries=self._config.budgets.max_node_retries,
+                envelope=envelope,
+            )
+            self._blackboard.create_node(node)
+            return wf_id
 
         prev_node_id: str | None = None
         for idx, skill_id in enumerate(matched_skills, start=1):

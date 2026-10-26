@@ -20,17 +20,7 @@ class ElectrophysSpecialistAgent(BaseSpecialistAgent):
             Constructed electrophysiology specialist agent.
     """
 
-    DEFAULT_PROMPT: str = (
-        "You are the Neuri Electrophysiology Specialist. Your duties:\n"
-        "1. Setting up MNE-Python raw pipelines with zero-phase FIR "
-        "bandpass and notch filtering.\n"
-        "2. Automated bad channel detection via RANSAC or correlation "
-        "thresholds.\n"
-        "3. High-pass 1 Hz ICA decomposition for ocular and cardiac "
-        "artifact removal.\n"
-        "4. BEM head model generation, co-registration, and dSPM/sLORETA "
-        "source reconstruction."
-    )
+    DEFAULT_PROMPT: str = "You are the Neuri Electrophysiology Specialist."
 
     def __init__(self) -> None:
         """Initialize Electrophysiology Specialist agent with Tier-1 EEG/MEG skills.

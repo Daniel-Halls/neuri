@@ -134,6 +134,22 @@ class NeuriSessionEngine:
         return s_id
 
     @property
+    def config(self) -> NeuriConfig:
+        """Active session configuration model.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriConfig: NeuriConfig instance
+                Configuration model.
+        """
+        cfg: NeuriConfig = self._config
+        return cfg
+
+    @property
     def turns(self) -> list[ChatTurn]:
         """Shallow copy of accumulated conversation history turns.
 

@@ -26,14 +26,7 @@ class CriticQAAgent(BaseSpecialistAgent):
     """
 
     DEFAULT_PROMPT: str = (
-        "You are the Neuri Critic and Quality Assurance Inspector. Your duties:\n"
-        "1. Inspecting generated QA snapshot PNG montages and overlays.\n"
-        "2. Validating that voxel zooms, dimensions, and orientations match "
-        "physical expectations.\n"
-        "3. Verifying Bayesian MCMC convergence: Gelman-Rubin R-hat < 1.01 "
-        "and ESS > 400.\n"
-        "4. Approving acceptable outputs to COMPLETED, or rejecting to "
-        "RETRYING with structured feedback."
+        "You are the Neuri Critic and Quality Assurance Inspector."
     )
 
     def __init__(self) -> None:

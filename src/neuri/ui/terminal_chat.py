@@ -5,6 +5,7 @@ Provides a rich scrollable canvas, slash-command autocompletion, collapsible
 reasoning drawers, and live telemetry status bars.
 """
 
+import asyncio
 from collections.abc import Generator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,6 +91,115 @@ class MessageCard(Static):
             yield Markdown(self._turn.content, classes="assistant-body")
 
 
+class ComputeSidebar(VerticalScroll):
+    """Sidebar widget displaying attached machines and active remote jobs.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        ComputeSidebar: ComputeSidebar instance
+            Constructed compute sidebar widget.
+    """
+
+    def __init__(self) -> None:
+        """Initialize compute sidebar widget.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        super().__init__(id="compute-sidebar")
+        self._content: Static = Static(
+            "Loading compute fabric...", id="compute-sidebar-content"
+        )
+
+    def compose(self) -> ComposeResult:
+        """Compose child widgets inside sidebar.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            ComposeResult: ComposeResult generator
+                Yields header label and content widget.
+        """
+        yield Label(" 💻 Machines & Jobs [F2] ", id="compute-sidebar-title")
+        yield self._content
+
+    def update_machines(self, machines_data: list[dict[str, Any]]) -> None:
+        """Render formatted machine status and active jobs into sidebar.
+
+        Parameters
+        ------------
+        machines_data: list[dict[str, Any]]
+            List of machine health and job dictionaries.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates text inside sidebar content widget.
+        """
+        if not machines_data:
+            self._content.update(
+                "[dim]No attached machines.\nUse /remote bootstrap <host>[/dim]"
+            )
+            return
+
+        txt: Text = Text()
+        for idx, m in enumerate(machines_data):
+            if idx > 0:
+                txt.append("\n" + "─" * 26 + "\n")
+            host_name: str = str(m.get("host", "unknown"))
+            online: bool = bool(m.get("online", False))
+            if online:
+                txt.append("● ", style="bold green")
+                txt.append(f"{host_name}\n", style="bold white")
+                cores: int = int(m.get("cpu_count", 1))
+                load_arr: list[float] = m.get("load_avg", [0.0, 0.0, 0.0])
+                load_s: str = f"{load_arr[0]:.2f}" if load_arr else "-"
+                txt.append(f"  CPUs: {cores} │ Load: {load_s}\n", style="cyan")
+
+                n_jobs: list[dict[str, Any]] = m.get("neuri_jobs", [])
+                s_jobs: list[dict[str, Any]] = m.get("slurm_jobs", [])
+                total_jobs: int = len(n_jobs) + len(s_jobs)
+                if total_jobs == 0:
+                    txt.append("  Jobs: Idle\n", style="dim")
+                else:
+                    for nj in n_jobs:
+                        st: str = str(nj.get("state", "RUNNING"))
+                        style_tag: str = (
+                            "green" if st == "RUNNING" else "yellow"
+                        )
+                        txt.append(
+                            f"  ▶ [Neuri] {nj.get('job_id')}: {st}\n",
+                            style=style_tag,
+                        )
+                    for sj in s_jobs:
+                        st = str(sj.get("state", "R"))
+                        style_tag = (
+                            "green" if st in ("R", "RUNNING") else "yellow"
+                        )
+                        txt.append(
+                            f"  ▶ [Slurm] #{sj.get('slurm_job_id')}: {st}\n",
+                            style=style_tag,
+                        )
+            else:
+                txt.append("○ ", style="bold red")
+                txt.append(f"{host_name} (Offline)\n", style="dim red")
+
+        self._content.update(txt)
+
+
 class TelemetryBar(Static):
     """Status bar widget displaying live tokens, cost, and harness routing.
 
@@ -107,6 +217,7 @@ class TelemetryBar(Static):
     tokens_count: reactive[int] = reactive(0)
     cost_usd: reactive[float] = reactive(0.0)
     status_text: reactive[str] = reactive("Ready")
+    machines_summary: reactive[str] = reactive("0 online")
 
     def __init__(self, harness_id: str = "agy") -> None:
         """Initialize telemetry status bar.
@@ -139,6 +250,8 @@ class TelemetryBar(Static):
         txt: Text = Text()
         txt.append(" Harness: ", style="bold cyan")
         txt.append(f"{self._harness_id} ", style="green")
+        txt.append("│ Machines: ", style="bold cyan")
+        txt.append(f"{self.machines_summary} ", style="green")
         txt.append("│ Tokens: ", style="bold cyan")
         txt.append(f"{self.tokens_count:,} ", style="yellow")
         txt.append("│ Cost: ", style="bold cyan")
@@ -183,9 +296,34 @@ class NeuriChatApp(App[None]):
         padding: 0 1;
         border-bottom: solid #334155;
     }
-    #chat-scroll {
+    #main-horizontal {
         height: 1fr;
+    }
+    #chat-scroll {
+        width: 1fr;
+        height: 100%;
         padding: 1 2;
+    }
+    #compute-sidebar {
+        width: 34;
+        height: 100%;
+        background: #161a22;
+        border-left: solid #334155;
+        padding: 0 1;
+    }
+    #compute-sidebar.hidden {
+        display: none;
+    }
+    #compute-sidebar-title {
+        color: #38bdf8;
+        text-style: bold;
+        background: #1e2430;
+        padding: 0 1;
+        margin-bottom: 1;
+        width: 100%;
+    }
+    #compute-sidebar-content {
+        color: #cbd5e1;
     }
     #input-container {
         dock: bottom;
@@ -239,6 +377,8 @@ class NeuriChatApp(App[None]):
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_screen", "Clear", show=True),
+        Binding("f2", "toggle_sidebar", "Machines", show=True),
+        Binding("ctrl+b", "toggle_sidebar", "Machines", show=False),
     ]
 
     def __init__(
@@ -270,6 +410,7 @@ class NeuriChatApp(App[None]):
             else NeuriSessionEngine(workspace_dir=self._workspace_dir)
         )
         self._telemetry_bar: TelemetryBar = TelemetryBar()
+        self._compute_sidebar: ComputeSidebar = ComputeSidebar()
         self._engine.subscribe(self._handle_session_event)
 
     @property
@@ -308,13 +449,15 @@ class NeuriChatApp(App[None]):
         )
         yield Static(banner_text, id="workspace-banner")
 
-        yield VerticalScroll(id="chat-scroll")
+        with Horizontal(id="main-horizontal"):
+            yield VerticalScroll(id="chat-scroll")
+            yield self._compute_sidebar
 
         with Container(id="input-container"):
             yield Input(
                 placeholder=(
                     "Type a research prompt or /command (/init, /skills, "
-                    "/status, /help, /exit)..."
+                    "/machines, /status, /help, /exit)..."
                 ),
                 id="prompt-input",
             )
@@ -332,7 +475,7 @@ class NeuriChatApp(App[None]):
         Returns
         --------
             None: NoneType object
-                Focuses the prompt input widget and posts welcome card.
+                Focuses input widget, posts welcome card, and starts monitors.
         """
         input_widget: Input = self.query_one("#prompt-input", Input)
         input_widget.focus()
@@ -344,6 +487,8 @@ class NeuriChatApp(App[None]):
             content=(
                 "**Welcome to Neuri v0.1.0** — Vendor-Agnostic Neuroscience "
                 "Meta-Harness.\n\n"
+                "- Press `F2` to toggle the attached Machines & Compute sidebar.\n"
+                "- Type `/machines` to view cluster and remote compute node status.\n"
                 "- Type `/skills` to explore available neuroscience skill packs.\n"
                 "- Type `/init` to initialize project configuration and SQLite state.\n"
                 "- Type `/status` to view active harness and token budgets.\n"
@@ -355,6 +500,65 @@ class NeuriChatApp(App[None]):
             "#chat-scroll", VerticalScroll
         )
         await scroll_area.mount(MessageCard(welcome_turn))
+
+        # Initial machine query and periodic monitor loop
+        self.set_interval(15.0, self.refresh_compute_machines)
+        asyncio.create_task(self.refresh_compute_machines())
+
+    def action_toggle_sidebar(self) -> None:
+        """Toggle visibility of the compute machines and jobs sidebar.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Toggles the hidden CSS class on the sidebar widget.
+        """
+        self._compute_sidebar.toggle_class("hidden")
+
+    async def refresh_compute_machines(self) -> None:
+        """Query attached machines and update the compute sidebar widget.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Updates sidebar content asynchronously.
+        """
+        try:
+            from neuri.remote.monitor import RemoteHostMonitor
+
+            monitor: RemoteHostMonitor = RemoteHostMonitor()
+            hosts: list[str] = monitor.get_configured_hosts()
+            default_host: str = getattr(
+                getattr(self._engine.config, "project", None),
+                "default_remote_host",
+                "localhost",
+            )
+            if default_host not in hosts:
+                hosts.insert(0, default_host)
+
+            data: list[dict[str, Any]] = await monitor.query_all_hosts(hosts)
+            self._compute_sidebar.update_machines(data)
+
+            online_count: int = sum(1 for d in data if d.get("online"))
+            active_jobs: int = sum(
+                len(d.get("neuri_jobs", [])) + len(d.get("slurm_jobs", []))
+                for d in data
+            )
+            self._telemetry_bar.machines_summary = (
+                f"{online_count}/{len(data)} online"
+            )
+            if active_jobs > 0:
+                self._telemetry_bar.status_text = f"{active_jobs} Jobs Active"
+        except Exception:
+            pass
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle prompt submission from the bottom input box.
@@ -471,6 +675,7 @@ class NeuriChatApp(App[None]):
 
 
 __all__: list[str] = [
+    "ComputeSidebar",
     "MessageCard",
     "NeuriChatApp",
     "TelemetryBar",

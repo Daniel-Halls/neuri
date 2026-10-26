@@ -468,6 +468,7 @@ class ConfigManager:
     HISTORY_FILENAME: str = "execution_history.json"
     QA_SNAPSHOTS_DIRNAME: str = "qa_snapshots"
     SKILLS_DIRNAME: str = "skills"
+    RULES_DIRNAME: str = "rules"
 
     def __init__(
         self,
@@ -624,6 +625,8 @@ class ConfigManager:
         qa_dir.mkdir(exist_ok=True)
         skills_dir: Path = neuri_dir / self.SKILLS_DIRNAME
         skills_dir.mkdir(exist_ok=True)
+        rules_dir: Path = neuri_dir / self.RULES_DIRNAME
+        rules_dir.mkdir(exist_ok=True)
 
         default_config: NeuriConfig = NeuriConfig(
             project=WorkspaceConfig(name=project_name)
@@ -653,6 +656,7 @@ class ConfigManager:
             "execution_history": history_path,
             "qa_snapshots_dir": qa_dir,
             "skills_dir": skills_dir,
+            "rules_dir": rules_dir,
         }
         return result
 

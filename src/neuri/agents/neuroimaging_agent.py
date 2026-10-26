@@ -20,16 +20,7 @@ class NeuroimagingSpecialistAgent(BaseSpecialistAgent):
             Constructed neuroimaging specialist agent.
     """
 
-    DEFAULT_PROMPT: str = (
-        "You are the Neuri Neuroimaging Specialist. Your expertise includes:\n"
-        "1. Structural MRI: FSL BET brain extraction, ANTs N4 bias "
-        "correction, SyN diffeomorphic registration, FreeSurfer recon-all.\n"
-        "2. Functional MRI: fMRIPrep confound regression, Nilearn "
-        "first/second-level GLM, and Bayesian SBI.\n"
-        "3. Diffusion MRI: FSL topup/eddy, MRtrix3 multi-shell multi-tissue "
-        "CSD, tckgen ACT tractography, SIFT2 filtering.\n"
-        "4. Enforce strict MCMC convergence criteria (R-hat < 1.01, ESS > 400)."
-    )
+    DEFAULT_PROMPT: str = "You are the Neuri Neuroimaging Specialist."
 
     def __init__(self) -> None:
         """Initialize Neuroimaging Specialist agent with MRI processing skills.

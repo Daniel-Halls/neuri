@@ -20,17 +20,7 @@ class PipelineEngineerAgent(BaseSpecialistAgent):
             Constructed pipeline engineer agent.
     """
 
-    DEFAULT_PROMPT: str = (
-        "You are the Neuri Pipeline Engineer. Your responsibilities include:\n"
-        "1. Validating and enforcing BIDS dataset hierarchies and naming "
-        "conventions.\n"
-        "2. Authoring modular, reproducible Snakemake, Bash, and Python "
-        "workflow scripts.\n"
-        "3. Ensuring containerized tool invocations bind appropriate "
-        "directories.\n"
-        "4. Never hallucinating directory structures or executing raw "
-        "destructive commands."
-    )
+    DEFAULT_PROMPT: str = "You are the Neuri Pipeline Engineer."
 
     def __init__(self) -> None:
         """Initialize Pipeline Engineer specialist agent with Tier-1 BIDS skills.

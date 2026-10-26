@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "remote_worker": {
+      "command": "python3",
+      "args": ["-m", "neuri_worker.mcp_server"],
+      "description": "Remote compute worker for deterministic neuro header extraction and PHI sanitization."
+    },
+    "scholar": {
+      "command": "python3",
+      "args": ["-m", "neuri.mcp_servers.mcp_scholar"],
+      "description": "Scientific literature and citation verification server via CrossRef and PubMed."
+    },
+    "openneuro": {
+      "command": "python3",
+      "args": ["-m", "neuri.mcp_servers.mcp_openneuro"],
+      "description": "OpenNeuro public neuroscience dataset discovery and DataLad ingestion."
+    },
+    "git_forge": {
+      "command": "python3",
+      "args": ["-m", "neuri.mcp_servers.mcp_git_forge"],
+      "description": "Git repository forge client for reproducible pipeline tracking."
+    },
+    "neuro_resources": {
+      "command": "python3",
+      "args": ["-m", "neuri.mcp_servers.mcp_resources"],
+      "description": "TemplateFlow brain atlases and standardized coordinate space resources."
+    }
+  }
+}

@@ -15,9 +15,11 @@ import yaml
 
 from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig, init_project_workspace, load_config
+from neuri.core.installer import NeuriInstaller
 from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.paths import PathResolver
 from neuri.remote.bootstrap import RemoteHostBootstrapper
+from neuri.remote.monitor import RemoteHostMonitor
 from neuri.remote.slurm_bridge import DetachAndReconcileManager
 
 
@@ -81,10 +83,13 @@ class SlashCommandRouter:
 
     SUPPORTED_COMMANDS: list[str] = [
         "/init",
+        "/install",
         "/skills",
         "/status",
         "/harness",
         "/remote",
+        "/machines",
+        "/cluster",
         "/jobs",
         "/view",
         "/retry",
@@ -176,6 +181,8 @@ class SlashCommandRouter:
 
         if cmd == "/init":
             return self._handle_init()
+        elif cmd == "/install":
+            return self._handle_install(args)
         elif cmd == "/skills":
             return self._handle_skills(args)
         elif cmd == "/status":
@@ -184,6 +191,8 @@ class SlashCommandRouter:
             return self._handle_harness(args)
         elif cmd == "/remote":
             return self._handle_remote(args)
+        elif cmd in ("/machines", "/cluster"):
+            return self._handle_machines()
         elif cmd == "/jobs":
             return self._handle_jobs(args)
         elif cmd == "/view":
@@ -244,6 +253,54 @@ class SlashCommandRouter:
                 success=False,
                 markdown_output=f"Failed to initialize workspace: {exc}",
             )
+
+    def _handle_install(self, args: list[str]) -> SlashCommandResult:
+        """Install or synchronize Neuri base environment into ~/.neuri.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional command arguments (e.g. '--force' or '-f').
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Installation outcome summary card.
+        """
+        force: bool = "--force" in args or "-f" in args
+        installer: NeuriInstaller = NeuriInstaller()
+        summary: dict[str, Any] = installer.install(force=force)
+        target_dir: str = summary.get(
+            "target_dir", str(Path.home() / ".neuri")
+        )
+        installed: list[str] = summary.get("installed", [])
+
+        if installed:
+            installed_str: str = ", ".join(f"`{sec}`" for sec in installed)
+            msg: str = (
+                f"### Neuri Base Environment Installed\n\n"
+                f"- **Target Directory**: `{target_dir}`\n"
+                f"- **Installed Subfolders**: {installed_str}\n\n"
+                f"Initialized structure:\n"
+                f"- `global/`: Master prompt grounding Neuri\n"
+                f"- `skills/`: Neuroscience skills catalog and manuals\n"
+                f"- `mcp/`: Model Context Protocol server definitions\n"
+                f"- `rules/`: Workspace and domain rule configurations\n"
+            )
+        else:
+            msg = (
+                f"### Neuri Environment Already Initialized\n\n"
+                f"Neuri environment is already present at `{target_dir}`.\n"
+                f"Use `/install --force` to overwrite existing configuration."
+            )
+
+        result: SlashCommandResult = SlashCommandResult(
+            command="/install",
+            success=True,
+            markdown_output=msg,
+            data=summary,
+        )
+        return result
 
     def _handle_skills(self, args: list[str]) -> SlashCommandResult:
         """List or inspect neuroscience skills catalog.
@@ -574,6 +631,99 @@ class SlashCommandRouter:
             ),
         )
 
+    def _handle_machines(self) -> SlashCommandResult:
+        """Inspect all configured compute machines and their running jobs.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Rendered table of attached machines and job statuses.
+        """
+        monitor: RemoteHostMonitor = RemoteHostMonitor()
+        hosts: list[str] = monitor.get_configured_hosts()
+        default_host: str = getattr(
+            getattr(self._config, "project", None),
+            "default_remote_host",
+            "localhost",
+        )
+        if default_host not in hosts:
+            hosts.insert(0, default_host)
+
+        results: list[dict[str, Any]] = self._run_sync_coroutine(
+            monitor.query_all_hosts(hosts)
+        )
+
+        if not results:
+            empty_res: SlashCommandResult = SlashCommandResult(
+                command="/machines",
+                success=True,
+                markdown_output=(
+                    "### Attached Machines & Compute Fabric\n\n"
+                    "No remote machines configured. Use `/remote bootstrap <host>` "
+                    "to attach a compute host."
+                ),
+                data={"machines": []},
+            )
+            return empty_res
+
+        lines: list[str] = [
+            "### Attached Machines & Compute Status\n",
+            "| Host | Status | CPU Cores | Load Avg | Active Jobs |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        job_details: list[str] = []
+
+        for m in results:
+            host_name: str = str(m.get("host", "unknown"))
+            online: bool = bool(m.get("online", False))
+            status_badge: str = "🟢 Online" if online else "🔴 Offline"
+            cores: str = str(m.get("cpu_count", "-"))
+            load_arr: list[float] = m.get("load_avg", [0.0, 0.0, 0.0])
+            load_str: str = (
+                ", ".join(str(x) for x in load_arr) if load_arr else "-"
+            )
+
+            n_jobs: list[dict[str, Any]] = m.get("neuri_jobs", [])
+            s_jobs: list[dict[str, Any]] = m.get("slurm_jobs", [])
+            active_cnt: int = len(
+                [j for j in n_jobs if j.get("state") == "RUNNING"]
+            ) + len([j for j in s_jobs if j.get("state") in ("R", "RUNNING")])
+
+            lines.append(
+                f"| `{host_name}` | {status_badge} | {cores} | {load_str} | "
+                f"{active_cnt} active |"
+            )
+
+            if n_jobs or s_jobs:
+                job_details.append(f"\n**Jobs on `{host_name}`:**")
+                for j in n_jobs:
+                    job_details.append(
+                        f"- [Neuri] `{j.get('job_id')}`: {j.get('state')} "
+                        f"(Started: {j.get('start_time', 'N/A')})"
+                    )
+                for sj in s_jobs:
+                    job_details.append(
+                        f"- [Slurm] `#{sj.get('slurm_job_id')}` "
+                        f"({sj.get('name')}): {sj.get('state')} on "
+                        f"`{sj.get('partition')}` (Time: {sj.get('elapsed')})"
+                    )
+
+        md_out: str = "\n".join(lines)
+        if job_details:
+            md_out += "\n" + "\n".join(job_details)
+
+        final_res: SlashCommandResult = SlashCommandResult(
+            command="/machines",
+            success=True,
+            markdown_output=md_out,
+            data={"machines": results},
+        )
+        return final_res
+
     def _handle_jobs(self, args: list[str]) -> SlashCommandResult:
         """Inspect and reconcile asynchronous remote batch jobs.
 
@@ -809,6 +959,7 @@ class SlashCommandRouter:
             "| Command | Description |\n"
             "| :--- | :--- |\n"
             "| `/init` | Initialize `.neuri/` workspace configuration and state |\n"
+            "| `/install` | Install base prompt, skills, MCP, and rules |\n"
             "| `/skills` | Browse Tier-0 neuroscience skills catalog |\n"
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
             "| `/status` | View workspace status, blackboard stats, and token usage |\n"

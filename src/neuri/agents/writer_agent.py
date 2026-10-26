@@ -63,14 +63,7 @@ class ScientificWriterAgent(BaseSpecialistAgent):
             Constructed scientific writer agent.
     """
 
-    DEFAULT_PROMPT: str = (
-        "You are the Neuri Scientific Writer. Your responsibilities include:\n"
-        "1. Drafting rigorous Methods sections conforming to COBIDAS.\n"
-        "2. Extracting exact software versions and hashes from provenance.\n"
-        "3. Strictly enforcing the Anti-Hallucination Citation Gate: NEVER "
-        "reference a study unless it is registered in the citations ledger.\n"
-        "4. Producing standard GitHub Markdown and LaTeX manuscripts."
-    )
+    DEFAULT_PROMPT: str = "You are the Neuri Scientific Writer."
 
     def __init__(self) -> None:
         """Initialize Scientific Writer agent with writing skills.

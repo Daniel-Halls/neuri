@@ -22,8 +22,10 @@ from neuri.core.config import (
     init_workspace,
     load_config,
 )
+from neuri.core.installer import NeuriInstaller
 from neuri.core.orchestrator import DAGOrchestrator, OrchestratorError
 from neuri.core.paths import PathResolver
+from neuri.core.rules import RuleLoader
 from neuri.core.preflight import (
     PreflightCheckResult,
     PreflightValidationError,
@@ -85,6 +87,7 @@ __all__: list[str] = [
     "ModelPricingTable",
     "NeuriConfig",
     "NeuriException",
+    "NeuriInstaller",
     "NeuriSessionEngine",
     "NeuriTaskEnvelope",
     "NeuriTaskResult",
@@ -99,6 +102,7 @@ __all__: list[str] = [
     "PreflightValidationError",
     "PreflightValidator",
     "RemoteArtifact",
+    "RuleLoader",
     "SanitizedNeuroHeader",
     "SessionEvent",
     "SessionEventType",

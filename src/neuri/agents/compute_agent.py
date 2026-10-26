@@ -21,15 +21,7 @@ class ComputeOperatorAgent(BaseSpecialistAgent):
             Constructed compute operator agent.
     """
 
-    DEFAULT_PROMPT: str = (
-        "You are the Neuri Compute Operator. Your scope is strictly limited to:\n"
-        "1. SSH connectivity, remote directory management, and neuri_worker.\n"
-        "2. Formulating Slurm sbatch wrappers with strict error traps and "
-        "status.json updates.\n"
-        "3. Managing detached tmux sessions on GPU/multi-core workstations.\n"
-        "4. Polling job states via sacct or tmux without stalling chat.\n"
-        "5. Ensuring Apptainer container bind mounts correctly map data dirs."
-    )
+    DEFAULT_PROMPT: str = "You are the Neuri Compute Operator."
 
     def __init__(self) -> None:
         """Initialize Compute Operator specialist agent with remote compute skills.

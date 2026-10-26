@@ -5,11 +5,13 @@ prompts, Tier-1 skill path injection, Tier-2 MCP tool discovery, and strict
 header-only context enforcement.
 """
 
+import json
 from pathlib import Path
 from typing import Any
 
 from neuri.core.config import NeuriConfig
 from neuri.core.paths import PathResolver
+from neuri.core.rules import RuleLoader
 from neuri.core.schemas import NeuriTaskEnvelope, RemoteArtifact
 
 
@@ -98,18 +100,36 @@ class BaseSpecialistAgent:
                 paths.append(s_id)
         return paths
 
-    def resolve_mcp_servers(self) -> dict[str, dict[str, Any]]:
+    def resolve_mcp_servers(
+        self, workspace_dir: Path | None = None
+    ) -> dict[str, dict[str, Any]]:
         """Build MCP server configuration dictionary for the agent's tools.
 
         Parameters
         ------------
-        None
+        workspace_dir: Path | None
+            Optional workspace directory to discover local MCP config.
+            Defaults to None.
 
         Returns
         --------
             dict[str, dict[str, Any]]: dictionary object
                 Mapping of MCP server IDs to stdio command definitions.
         """
+        config_path: Path | None = PathResolver.get_default_mcp_config(
+            workspace_dir=workspace_dir
+        )
+        registered_servers: dict[str, Any] = {}
+        if config_path is not None and config_path.is_file():
+            try:
+                raw_data: Any = json.loads(
+                    config_path.read_text(encoding="utf-8")
+                )
+                if isinstance(raw_data, dict):
+                    registered_servers = raw_data.get("mcpServers", {})
+            except Exception:
+                registered_servers = {}
+
         mcp_map: dict[str, dict[str, Any]] = {}
         module_lookup: dict[str, str] = {
             "remote_worker": "neuri_worker.mcp_server",
@@ -119,13 +139,16 @@ class BaseSpecialistAgent:
             "neuro_resources": "neuri.mcp_servers.mcp_resources",
         }
         for tool_id in self._mcp_tools:
-            mod_name: str = module_lookup.get(
-                tool_id, f"neuri.mcp_servers.mcp_{tool_id}"
-            )
-            mcp_map[tool_id] = {
-                "command": "python3",
-                "args": ["-m", mod_name],
-            }
+            if tool_id in registered_servers:
+                mcp_map[tool_id] = registered_servers[tool_id]
+            else:
+                mod_name: str = module_lookup.get(
+                    tool_id, f"neuri.mcp_servers.mcp_{tool_id}"
+                )
+                mcp_map[tool_id] = {
+                    "command": "python3",
+                    "args": ["-m", mod_name],
+                }
         return mcp_map
 
     def build_envelope(
@@ -166,9 +189,18 @@ class BaseSpecialistAgent:
             NeuriTaskEnvelope: NeuriTaskEnvelope instance
                 Constructed task execution envelope.
         """
-        full_system_prompt: str = self._system_prompt
+        master_prompt: str = RuleLoader.load_master_prompt()
+        rules_text: str = RuleLoader.load_agent_rules(role=self._role)
+        prompt_parts: list[str] = []
+        if master_prompt:
+            prompt_parts.append(master_prompt)
+        if self._system_prompt:
+            prompt_parts.append(self._system_prompt)
+        if rules_text:
+            prompt_parts.append(f"Operational Rules:\n{rules_text}")
         if extra_context:
-            full_system_prompt = f"{self._system_prompt}\n\n{extra_context}"
+            prompt_parts.append(extra_context)
+        full_system_prompt: str = "\n\n".join(prompt_parts)
 
         token_budget: int = (
             config.budgets.max_node_tokens if config is not None else 64000
