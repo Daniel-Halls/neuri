@@ -200,6 +200,8 @@ class SlashCommandRouter:
             return self._handle_jobs(args)
         elif cmd in ("/shell", "/sh"):
             return self._handle_shell(args)
+        elif cmd in ("/history", "/hist"):
+            return self._handle_history(args)
         elif cmd == "/theme":
             return self._handle_theme(args)
         elif cmd == "/view":
@@ -922,6 +924,75 @@ class SlashCommandRouter:
         )
         return result
 
+    def _handle_history(self, args: list[str]) -> SlashCommandResult:
+        """Display or clear persistent command and prompt history.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional subcommands (e.g. 'clear' or count limit).
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Formatted history markdown table or status confirmation.
+        """
+        from neuri.ui.history import PromptHistoryManager
+
+        manager: PromptHistoryManager = PromptHistoryManager()
+        if args and args[0].lower() in ("clear", "clean", "purge"):
+            manager.clear()
+            clear_res: SlashCommandResult = SlashCommandResult(
+                command="/history",
+                success=True,
+                markdown_output="Command and prompt history cleared.",
+            )
+            return clear_res
+
+        entries: list[str] = manager.entries
+        if not entries:
+            empty_res: SlashCommandResult = SlashCommandResult(
+                command="/history",
+                success=True,
+                markdown_output="*Command history is empty.*",
+            )
+            return empty_res
+
+        limit: int = 25
+        if args and args[0].isdigit():
+            limit = max(1, min(int(args[0]), 200))
+
+        displayed: list[str] = entries[-limit:]
+        start_idx: int = max(1, len(entries) - len(displayed) + 1)
+        header_text: str = (
+            f"### Command & Prompt History (last {len(displayed)} of "
+            f"{len(entries)})"
+        )
+        lines: list[str] = [
+            header_text,
+            "",
+            "| # | Command / Prompt |",
+            "| :--- | :--- |",
+        ]
+        for i, entry in enumerate(displayed, start=start_idx):
+            escaped: str = entry.replace("|", "\\|").replace("\n", " ")
+            if len(escaped) > 80:
+                escaped = escaped[:77] + "..."
+            lines.append(f"| {i} | `{escaped}` |")
+
+        lines.extend([
+            "",
+            "- Press **Up / Down arrows** in prompt to scroll through history.",
+            "- Use `/history clear` to purge stored history.",
+        ])
+
+        hist_res: SlashCommandResult = SlashCommandResult(
+            command="/history",
+            success=True,
+            markdown_output="\n".join(lines),
+        )
+        return hist_res
+
     def _handle_theme(self, args: list[str]) -> SlashCommandResult:
         """List available color themes or activate a selected theme.
 
@@ -1174,6 +1245,7 @@ class SlashCommandRouter:
             "| `/remote` | View, bootstrap, or remove remote compute hosts |\n"
             "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
             "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"
+            "| `/history [n|clear]` | View or clear command and prompt history |\n"
             "| `/theme [name]` | List or switch visual color themes |\n"
             "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
             "| `/retry <node_id>` | Resume a node paused in WAITING_OPERATOR |\n"

@@ -33,6 +33,7 @@ from neuri.remote.shell_executor import (
     ShellCommandExecutor,
     ShellExecutionResult,
 )
+from neuri.ui.history import PromptHistoryManager
 from neuri.ui.theme import NeuriTheme, NeuriThemeManager
 
 
@@ -405,14 +406,24 @@ class MachineSelectorBar(Static):
 
 
 class PromptInput(Input):
-    """Custom input widget providing shell mode arrow-key machine switching.
+    """Custom input widget providing bash-like history and shell machine switching.
 
     Parameters
     ------------
+    value: str | None
+        Initial text value. Defaults to None.
     placeholder: str
         Initial placeholder text. Defaults to empty string.
     id: str | None
         Widget ID. Defaults to None.
+    classes: str | None
+        CSS classes. Defaults to None.
+    disabled: bool
+        Whether widget is disabled. Defaults to False.
+    select_on_focus: bool
+        Whether to select all text on focus. Defaults to False.
+    history_manager: PromptHistoryManager | None
+        Optional history manager instance. Defaults to None.
 
     Returns
     --------
@@ -420,8 +431,75 @@ class PromptInput(Input):
             Constructed prompt input widget.
     """
 
+    def __init__(
+        self,
+        value: str | None = None,
+        placeholder: str = "",
+        id: str | None = None,
+        classes: str | None = None,
+        disabled: bool = False,
+        select_on_focus: bool = False,
+        history_manager: PromptHistoryManager | None = None,
+    ) -> None:
+        """Initialize PromptInput with optional history manager.
+
+        Parameters
+        ------------
+        value: str | None
+            Initial text value. Defaults to None.
+        placeholder: str
+            Initial placeholder text. Defaults to empty string.
+        id: str | None
+            Widget ID. Defaults to None.
+        classes: str | None
+            CSS classes. Defaults to None.
+        disabled: bool
+            Whether widget is disabled. Defaults to False.
+        select_on_focus: bool
+            Whether to select all text on focus. Defaults to False.
+        history_manager: PromptHistoryManager | None
+            Optional history manager instance. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes prompt widget attributes.
+        """
+        super().__init__(
+            value=value,
+            placeholder=placeholder,
+            id=id,
+            classes=classes,
+            disabled=disabled,
+            select_on_focus=select_on_focus,
+        )
+        self._history_manager: PromptHistoryManager | None = history_manager
+
+    def _get_history_manager(self) -> PromptHistoryManager | None:
+        """Resolve active history manager from direct reference or parent app.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            PromptHistoryManager | None: optional manager instance
+                Active history manager or None if unattached.
+        """
+        if self._history_manager is not None:
+            return self._history_manager
+        try:
+            chat_app: Any = self.app
+            if chat_app is not None and hasattr(chat_app, "history_manager"):
+                manager: PromptHistoryManager = chat_app.history_manager
+                return manager
+        except Exception:
+            pass
+        return None
+
     async def _on_key(self, event: events.Key) -> None:
-        """Handle key events to allow arrow-key machine navigation in shell mode.
+        """Handle key events for bash-like history and shell machine navigation.
 
         Parameters
         ------------
@@ -431,19 +509,34 @@ class PromptInput(Input):
         Returns
         --------
             None: NoneType object
-                Navigates machines or delegates to standard text input.
+                Navigates history, machines, or delegates to standard text input.
         """
         chat_app: Any = self.app
-        if chat_app is not None and getattr(chat_app, "is_shell_mode", False):
-            if event.key in ("up", "down"):
-                event.prevent_default()
-                event.stop()
+
+        # Up and Down arrows: Navigate bash-like command and prompt history
+        if event.key in ("up", "down"):
+            history: PromptHistoryManager | None = self._get_history_manager()
+            if history is not None:
                 if event.key == "up":
-                    chat_app.action_prev_machine()
-                else:
-                    chat_app.action_next_machine()
-                return
-            elif event.key in ("left", "right") and not self.value:
+                    nav_val: str | None = history.navigate_up(self.value)
+                    if nav_val is not None:
+                        self.value = nav_val
+                        self.cursor_position = len(nav_val)
+                        event.prevent_default()
+                        event.stop()
+                        return
+                elif event.key == "down":
+                    nav_val = history.navigate_down()
+                    if nav_val is not None:
+                        self.value = nav_val
+                        self.cursor_position = len(nav_val)
+                        event.prevent_default()
+                        event.stop()
+                        return
+
+        # In shell mode, switch machines via Left/Right arrows when prompt is empty
+        if chat_app is not None and getattr(chat_app, "is_shell_mode", False):
+            if event.key in ("left", "right") and not self.value:
                 event.prevent_default()
                 event.stop()
                 if event.key == "left":
@@ -451,6 +544,7 @@ class PromptInput(Input):
                 else:
                     chat_app.action_next_machine()
                 return
+
         await super()._on_key(event)
 
 
@@ -761,7 +855,24 @@ class NeuriChatApp(App[None]):
         self._theme_manager: NeuriThemeManager = NeuriThemeManager(
             workspace_dir=self._workspace_dir
         )
+        self._history_manager: PromptHistoryManager = PromptHistoryManager()
         self._engine.subscribe(self._handle_session_event)
+
+    @property
+    def history_manager(self) -> PromptHistoryManager:
+        """Return the active command and prompt history manager.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            PromptHistoryManager: PromptHistoryManager instance
+                Application command history manager.
+        """
+        hm: PromptHistoryManager = self._history_manager
+        return hm
 
     @property
     def is_mounted(self) -> bool:
@@ -811,6 +922,7 @@ class NeuriChatApp(App[None]):
                     "/machines, /status, /help, /exit)..."
                 ),
                 id="prompt-input",
+                select_on_focus=False,
             )
 
         yield self._telemetry_bar
@@ -1112,6 +1224,38 @@ class NeuriChatApp(App[None]):
         except Exception:
             pass
 
+    async def on_key(self, event: events.Key) -> None:
+        """Capture key events and redirect typing to prompt input automatically.
+
+        Parameters
+        ------------
+        event: events.Key
+            Key event captured at application root.
+
+        Returns
+        --------
+            None: NoneType object
+                Focuses prompt input and enters characters if unfocused.
+        """
+        try:
+            input_widget: PromptInput = self.query_one(
+                "#prompt-input", PromptInput
+            )
+        except Exception:
+            return
+
+        if self.focused != input_widget:
+            if event.is_printable and event.character:
+                input_widget.focus()
+                input_widget.insert_text_at_cursor(event.character)
+                event.prevent_default()
+                event.stop()
+            elif event.key == "backspace":
+                input_widget.focus()
+                input_widget.action_delete_left()
+                event.prevent_default()
+                event.stop()
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle prompt submission from the bottom input box.
 
@@ -1128,6 +1272,8 @@ class NeuriChatApp(App[None]):
         val: str = event.value.strip()
         if not val:
             return
+
+        self._history_manager.add_entry(val)
 
         input_widget: Input = event.input
         input_widget.value = ""
