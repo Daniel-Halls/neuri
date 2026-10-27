@@ -139,6 +139,10 @@ async def test_textual_chat_app_mounts_and_renders(tmp_path: Path) -> None:
         None: NoneType object
             Asserts banner, scroll area, and input box exist.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         assert app.is_mounted is True
@@ -164,6 +168,10 @@ async def test_textual_chat_app_submits_slash_command(tmp_path: Path) -> None:
         None: NoneType object
             Asserts message card is added to chat scroll area.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         input_widget = app.query_one("#prompt-input")
@@ -191,6 +199,10 @@ async def test_textual_chat_app_action_clear(tmp_path: Path) -> None:
         None: NoneType object
             Asserts children are cleared from scroll area.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         scroll_area = app.query_one("#chat-scroll")
@@ -215,6 +227,10 @@ async def test_textual_chat_app_toggle_shell_mode(tmp_path: Path) -> None:
         None: NoneType object
             Asserts mode toggling and widget class updates.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         assert app.is_shell_mode is False
@@ -247,6 +263,10 @@ async def test_textual_chat_app_machine_selection(tmp_path: Path) -> None:
         None: NoneType object
             Asserts selected machine updates cyclically.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test():
         app.action_toggle_shell_mode()
@@ -281,6 +301,10 @@ async def test_textual_chat_app_submit_shell_command(tmp_path: Path) -> None:
         None: NoneType object
             Asserts command execution and result card mounted on canvas.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         app.action_toggle_shell_mode()
@@ -311,6 +335,10 @@ async def test_textual_chat_app_theme_slash_command(tmp_path: Path) -> None:
         None: NoneType object
             Asserts application theme switches to dark upon slash command submission.
     """
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
     app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
     async with app.run_test() as pilot:
         # Default theme is high_contrast

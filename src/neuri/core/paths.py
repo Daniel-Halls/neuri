@@ -318,6 +318,59 @@ class PathResolver:
 
         return None
 
+    @classmethod
+    def resolve_global_brain_dir(
+        cls, custom_path: str | None = None
+    ) -> Path:
+        """Resolve filesystem path to the Global Obsidian brain vault.
+
+        Parameters
+        ------------
+        custom_path: str | None
+            Optional configured path override. Defaults to None.
+
+        Returns
+        --------
+            Path: Path object
+                Resolved filesystem path to global vault directory.
+        """
+        if custom_path:
+            expanded: Path = Path(custom_path).expanduser().resolve()
+            return expanded
+
+        default_path: Path = (
+            Path.home() / ".neuri" / "brain"
+        ).resolve()
+        return default_path
+
+    @classmethod
+    def resolve_project_brain_dir(
+        cls,
+        workspace_dir: Path | None = None,
+        subdir: str = ".neuri/brain",
+    ) -> Path:
+        """Resolve filesystem path to the Project Obsidian brain vault.
+
+        Parameters
+        ------------
+        workspace_dir: Path | None
+            Optional workspace root path. Defaults to None (current dir).
+        subdir: str
+            Relative subdirectory path. Defaults to '.neuri/brain'.
+
+        Returns
+        --------
+            Path: Path object
+                Resolved filesystem path to project vault directory.
+        """
+        base_dir: Path = (
+            workspace_dir.resolve()
+            if workspace_dir is not None
+            else Path.cwd().resolve()
+        )
+        project_brain: Path = (base_dir / subdir).resolve()
+        return project_brain
+
 
 __all__: list[str] = [
     "PathResolver",

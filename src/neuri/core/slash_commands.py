@@ -15,6 +15,15 @@ import webbrowser
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
 
+from neuri.brain import (
+    BrainContextCapsule,
+    BrainManager,
+    BrainObservation,
+    BrainScope,
+    BrainSearchResult,
+    BrainStats,
+    ObservationCategory,
+)
 from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig, init_project_workspace, load_config
 from neuri.core.installer import NeuriInstaller
@@ -219,6 +228,8 @@ class SlashCommandRouter:
             return self._handle_history(args)
         elif cmd == "/theme":
             return self._handle_theme(args)
+        elif cmd in ("/brain", "/memory"):
+            return self._handle_brain(args)
         elif cmd == "/plan":
             return self._handle_plan(args)
         elif cmd == "/run":
@@ -1529,6 +1540,289 @@ class SlashCommandRouter:
             action="clear_chat",
         )
 
+    def _get_brain_manager(self) -> BrainManager:
+        """Resolve and initialize BrainManager for active configuration.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            BrainManager: BrainManager instance
+                Constructed BrainManager coordinating global and project vaults.
+        """
+        global_path: Path = PathResolver.resolve_global_brain_dir(
+            self._config.brain.global_vault_path
+        )
+        project_path: Path = PathResolver.resolve_project_brain_dir(
+            self._workspace_dir,
+            self._config.brain.project_vault_subdir,
+        )
+        db_path: Path = (
+            self._workspace_dir / ".neuri" / "brain_index.db"
+            if (self._workspace_dir / ".neuri").is_dir()
+            else global_path / ".neuri-brain.db"
+        )
+        mgr: BrainManager = BrainManager(
+            global_vault_dir=global_path,
+            project_vault_dir=project_path,
+            db_path=db_path,
+        )
+        return mgr
+
+    def _handle_brain(self, args: list[str]) -> SlashCommandResult:
+        """Handle /brain command for Obsidian vault and memory management.
+
+        Parameters
+        ------------
+        args: list[str]
+            Subcommand arguments passed after /brain.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Outcome of brain management operation.
+        """
+        mgr: BrainManager = self._get_brain_manager()
+        subcmd: str = args[0].lower() if args else "status"
+
+        if subcmd in ("status", "info"):
+            mgr.sync_all()
+            stats: BrainStats = mgr.get_stats()
+            unres_count: int = len(stats.unresolved_links)
+            unres_snippet: str = (
+                f"`{', '.join(stats.unresolved_links[:5])}`"
+                if stats.unresolved_links
+                else "None"
+            )
+            md: str = (
+                "### 🧠 Neuri Brain Status\n\n"
+                f"- **Global Vault:** `{stats.global_vault_path}` "
+                f"({stats.global_notes_count} notes)\n"
+                f"- **Project Vault:** `{stats.project_vault_path}` "
+                f"({stats.project_notes_count} notes)\n"
+                f"- **Total Observations:** {stats.total_observations_count}\n"
+                f"- **Total Relations:** {stats.total_relations_count}\n"
+                f"- **Knowledge Gaps:** {unres_count} ({unres_snippet})\n\n"
+                "**Quick Commands:**\n"
+                "- `/brain search <query>`: Search notes & observations\n"
+                "- `/brain context <topic>`: Preview low-context LLM capsule\n"
+                "- `/brain remember <fact>`: Record quick observation\n"
+                "- `/brain link <path>`: Link external Obsidian vault\n"
+                "- `/brain init`: Scaffold vaults with starter notes\n"
+                "- `/brain open`: Open vault in Obsidian desktop app"
+            )
+            return SlashCommandResult(
+                command="/brain status",
+                success=True,
+                markdown_output=md,
+                data=stats.model_dump(),
+            )
+
+        elif subcmd == "init":
+            g_files = mgr.init_global_vault()
+            p_files = mgr.init_project_vault()
+            md = (
+                "### 🧠 Neuri Brain Initialized\n\n"
+                f"- **Global Vault:** `{mgr.global_vault}`\n"
+                f"- **Project Vault:** `{mgr.project_vault}`\n"
+                f"- **Scaffolded Notes:** {len(g_files) + len(p_files)} notes\n\n"
+                "You can now open these folders directly in Obsidian as vaults!"
+            )
+            return SlashCommandResult(
+                command="/brain init",
+                success=True,
+                markdown_output=md,
+                data={
+                    "global_files": [str(f) for f in g_files],
+                    "project_files": [str(f) for f in p_files],
+                },
+            )
+
+        elif subcmd == "link":
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/brain link",
+                    success=False,
+                    markdown_output="Usage: `/brain link <path-to-obsidian-vault>`",
+                )
+            target_path: Path = Path(args[1]).expanduser().resolve()
+            if not target_path.is_dir():
+                return SlashCommandResult(
+                    command="/brain link",
+                    success=False,
+                    markdown_output=(
+                        f"Target directory does not exist: `{target_path}`"
+                    ),
+                )
+            self._config.brain.global_vault_path = str(target_path)
+            new_mgr: BrainManager = self._get_brain_manager()
+            sync_metrics = new_mgr.sync_all()
+            stats = new_mgr.get_stats()
+            md = (
+                "### 🧠 Global Brain Linked to Obsidian Vault\n\n"
+                f"- **Vault Path:** `{target_path}`\n"
+                f"- **Indexed Notes:** {stats.global_notes_count}\n"
+                f"- **Observations Indexed:** {stats.total_observations_count}\n\n"
+                "Neuri will now read and sync notes from this vault."
+            )
+            return SlashCommandResult(
+                command="/brain link",
+                success=True,
+                markdown_output=md,
+                data=sync_metrics,
+            )
+
+        elif subcmd == "search":
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/brain search",
+                    success=False,
+                    markdown_output="Usage: `/brain search <query>`",
+                )
+            query: str = " ".join(args[1:])
+            results: list[BrainSearchResult] = mgr.search(
+                query=query, limit=self._config.brain.max_search_results
+            )
+            if not results:
+                return SlashCommandResult(
+                    command="/brain search",
+                    success=True,
+                    markdown_output=(
+                        f"No notes or observations found matching `{query}`."
+                    ),
+                    data={"query": query, "count": 0},
+                )
+            lines: list[str] = [
+                f"### 🧠 Brain Search Results for `{query}`\n",
+            ]
+            for r in results:
+                lines.append(
+                    f"- **[[{r.title}]]** (`{r.entity_id}`) *[{r.scope.value}]*"
+                )
+                if r.summary:
+                    lines.append(f"  > {r.summary}")
+                for obs in r.observations[:3]:
+                    lines.append(f"  - [{obs.category.value}] {obs.content}")
+                lines.append("")
+            return SlashCommandResult(
+                command="/brain search",
+                success=True,
+                markdown_output="\n".join(lines).strip(),
+                data={"query": query, "count": len(results)},
+            )
+
+        elif subcmd == "context":
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/brain context",
+                    success=False,
+                    markdown_output="Usage: `/brain context <topic>`",
+                )
+            topic: str = " ".join(args[1:])
+            capsule: BrainContextCapsule = mgr.build_context(
+                query=topic,
+                max_tokens=self._config.brain.max_auto_inject_tokens,
+            )
+            ent_str: str = (
+                ", ".join(capsule.entities_matched)
+                if capsule.entities_matched
+                else "None"
+            )
+            md = (
+                f"### 🧠 Prior Knowledge Capsule Preview (`{topic}`)\n\n"
+                f"*Estimated Tokens: ~{capsule.token_estimate} / "
+                f"{self._config.brain.max_auto_inject_tokens} budget*\n"
+                f"*Entities Included: {ent_str}*\n\n"
+                "```markdown\n"
+                f"{capsule.markdown_context}\n"
+                "```"
+            )
+            return SlashCommandResult(
+                command="/brain context",
+                success=True,
+                markdown_output=md,
+                data=capsule.model_dump(),
+            )
+
+        elif subcmd == "remember":
+            if len(args) < 2:
+                return SlashCommandResult(
+                    command="/brain remember",
+                    success=False,
+                    markdown_output=(
+                        "Usage: `/brain remember <observation statement>`"
+                    ),
+                )
+            statement: str = " ".join(args[1:])
+            obs = BrainObservation(
+                category=ObservationCategory.GENERAL,
+                content=statement,
+                tags=["quick_note"],
+            )
+            mgr.remember_observation(observation=obs)
+            md = (
+                "### 🧠 Observation Recorded\n\n"
+                f"- **Observation:** `{statement}`\n"
+                "- **Location:** Saved into `00_Index/Quick_Notes.md`."
+            )
+            return SlashCommandResult(
+                command="/brain remember",
+                success=True,
+                markdown_output=md,
+                data={"observation": statement},
+            )
+
+        elif subcmd == "sync":
+            sync_metrics = mgr.sync_all()
+            stats = mgr.get_stats()
+            md = (
+                "### 🧠 Brain Vaults Synchronized\n\n"
+                f"- **Global Vault:** `{stats.global_notes_count}` notes\n"
+                f"- **Project Vault:** `{stats.project_notes_count}` notes\n"
+                f"- **Total Observations:** `{stats.total_observations_count}`\n"
+                f"- **Total Relations:** `{stats.total_relations_count}`"
+            )
+            return SlashCommandResult(
+                command="/brain sync",
+                success=True,
+                markdown_output=md,
+                data=sync_metrics,
+            )
+
+        elif subcmd == "open":
+            uri: str = mgr.get_obsidian_uri(mgr.global_vault)
+            opened: bool = webbrowser.open(uri)
+            obs_status: str = (
+                "Opened Obsidian application."
+                if opened
+                else "Attempted to open Obsidian via URI handler."
+            )
+            md = (
+                "### 🧠 Opening Vault in Obsidian\n\n"
+                f"- **Vault Path:** `{mgr.global_vault}`\n"
+                f"- **URI Protocol:** `{uri}`\n\n"
+                f"{obs_status}"
+            )
+            return SlashCommandResult(
+                command="/brain open",
+                success=True,
+                markdown_output=md,
+                data={"uri": uri},
+            )
+
+        else:
+            return SlashCommandResult(
+                command="/brain",
+                success=False,
+                markdown_output=(
+                    f"Unknown brain subcommand: `{subcmd}`. Available: "
+                    "`status`, `init`, `link`, `search`, `context`, "
+                    "`remember`, `sync`, `open`."
+                ),
+            )
+
     def _handle_help(self) -> SlashCommandResult:
         """Return available slash commands and shortcuts.
 
@@ -1549,6 +1843,7 @@ class SlashCommandRouter:
             "| `/install` | Install base prompt, skills, MCP, and rules |\n"
             "| `/skills` | Browse Tier-0 neuroscience skills catalog |\n"
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
+            "| `/brain [cmd]` | Manage Obsidian memory vault and search priors |\n"
             "| `/status` | View workspace status, blackboard stats, and token usage |\n"
             "| `/plan <prompt>` | Preview DAG decomposition without auto-executing |\n"
             "| `/run [id]` | Execute a planned or pending research DAG |\n"

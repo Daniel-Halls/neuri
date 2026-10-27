@@ -278,6 +278,76 @@ class BudgetsConfig(BudgetConfig):
     """
 
 
+
+class BrainConfig(BaseModel):
+    """Configuration for Neuri Brain semantic memory and Obsidian vault.
+
+    Parameters
+    ------------
+    enabled: bool
+        Whether the Brain memory subsystem is active. Defaults to True.
+    global_vault_path: str
+        Filesystem directory for global vault. Defaults to '~/.neuri/brain'.
+    project_vault_subdir: str
+        Subdirectory for project vault within workspace. Defaults to
+        '.neuri/brain'.
+    auto_symlink_projects_into_global: bool
+        Whether to symlink project vaults into global vault. Defaults to True.
+    max_auto_inject_tokens: int
+        Upper token cap for Tier-0 progressive disclosure. Defaults to 450.
+    default_graph_depth: int
+        Relation traversal hop depth. Defaults to 1.
+    max_search_results: int
+        Max search hits returned by /brain search. Defaults to 8.
+    git_auto_sync: bool
+        Whether to execute git sync script automatically. Defaults to False.
+    git_sync_script: str
+        Filesystem path to git sync bash script. Defaults to ''.
+
+    Returns
+    --------
+        BrainConfig: BrainConfig instance
+            Constructed brain configuration model.
+    """
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether Brain memory subsystem is active",
+    )
+    global_vault_path: str = Field(
+        default="~/.neuri/brain",
+        description="Path to Global Obsidian vault",
+    )
+    project_vault_subdir: str = Field(
+        default=".neuri/brain",
+        description="Subdirectory for Project Obsidian vault",
+    )
+    auto_symlink_projects_into_global: bool = Field(
+        default=True,
+        description="Whether to symlink project vault into global vault",
+    )
+    max_auto_inject_tokens: int = Field(
+        default=450,
+        description="Token cap for Tier-0 context capsules",
+    )
+    default_graph_depth: int = Field(
+        default=1,
+        description="Default relation traversal hop depth",
+    )
+    max_search_results: int = Field(
+        default=8,
+        description="Max search results returned by default",
+    )
+    git_auto_sync: bool = Field(
+        default=False,
+        description="Whether to execute git sync script automatically",
+    )
+    git_sync_script: str = Field(
+        default="",
+        description="Filesystem path to git sync bash script",
+    )
+
+
 class NeuriConfig(BaseModel):
     """Complete two-tier Neuri configuration model.
 
@@ -288,7 +358,11 @@ class NeuriConfig(BaseModel):
     harness_routing: dict[str, HarnessRoutingConfig]
         Mapping of agent roles to harness routing configs. Defaults to 7 roles.
     budgets: BudgetConfig
-        Resource budgets and circuit breaker thresholds. Defaults to BudgetConfig.
+        Resource budgets and circuit breaker thresholds. Defaults to
+        BudgetConfig.
+    brain: BrainConfig
+        Brain semantic memory and Obsidian vault configuration. Defaults to
+        BrainConfig.
 
     Returns
     --------
@@ -307,6 +381,10 @@ class NeuriConfig(BaseModel):
     budgets: BudgetConfig = Field(
         default_factory=BudgetConfig,
         description="Resource budgets and circuit breaker thresholds",
+    )
+    brain: BrainConfig = Field(
+        default_factory=BrainConfig,
+        description="Brain semantic memory and Obsidian vault configuration",
     )
 
     @model_validator(mode="before")
@@ -794,6 +872,7 @@ def init_project_workspace(
 
 
 __all__: list[str] = [
+    "BrainConfig",
     "BudgetConfig",
     "ConfigError",
     "ConfigManager",

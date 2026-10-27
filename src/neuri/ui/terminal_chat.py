@@ -94,7 +94,7 @@ class MessageCard(Static):
         if self._turn.role == ChatRole.USER:
             if "**[" in self._turn.content and "$ " in self._turn.content:
                 yield Label(
-                    f"🐚 Shell ({time_str})",
+                    f"Shell ({time_str})",
                     classes="shell-header",
                 )
                 yield Markdown(self._turn.content, classes="shell-body")
@@ -107,15 +107,15 @@ class MessageCard(Static):
         else:
             if "### Shell Output:" in self._turn.content:
                 yield Label(
-                    f"🐚 Remote Shell ({time_str})",
+                    f"Remote Shell ({time_str})",
                     classes="shell-header",
                 )
                 yield Markdown(self._turn.content, classes="shell-body")
             else:
                 role_label: str = (
-                    f"🔬 Specialist ({self._turn.node_id})"
+                    f"Specialist ({self._turn.node_id})"
                     if self._turn.node_id
-                    else "◈ Neuri"
+                    else ">> Neuri"
                 )
                 yield Label(
                     role_label,
@@ -489,6 +489,7 @@ class SlashAutocompletePopup(Static):
         ("/run", "Execute a planned or pending research DAG"),
         ("/view", "Open local NiiVue WebGL2 visualization session"),
         ("/status", "View workspace status, blackboard stats, and tokens"),
+        ("/brain", "Manage Obsidian memory vault and search priors"),
         ("/skills", "Browse Tier-0 neuroscience skills catalog"),
         ("/harness", "View or update agent role-to-harness routing"),
         ("/remote", "View, bootstrap, or remove remote compute hosts"),
