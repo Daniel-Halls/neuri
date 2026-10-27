@@ -24,6 +24,21 @@
       "command": "python3",
       "args": ["-m", "neuri.mcp_servers.mcp_resources"],
       "description": "TemplateFlow brain atlases and standardized coordinate space resources."
+    },
+    "basic-memory": {
+      "command": "uvx",
+      "args": ["basic-memory", "mcp", "--project", "research"],
+      "description": "Local persistent Markdown knowledge graph with backlinks and entities."
+    },
+    "paper-search": {
+      "command": "uvx",
+      "args": ["paper-search-mcp"],
+      "description": "Scientific paper search across arXiv, bioRxiv, Europe PMC, OpenAlex, and CrossRef."
+    },
+    "ollama-server": {
+      "command": "python3",
+      "args": ["-m", "mcp_ollama_python"],
+      "description": "Local Ollama LLM integration server."
     }
   }
 }

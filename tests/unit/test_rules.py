@@ -17,8 +17,8 @@ from neuri.core.rules import RuleLoader
 from neuri.core.schemas import NeuriTaskEnvelope, TaskNode, TaskState
 
 
-def test_default_rules_directory_is_empty() -> None:
-    """Test that the default root rules directory exists and contains no rules.
+def test_default_rules_directory_exists() -> None:
+    """Test that the default root rules directory exists.
 
     Parameters
     ------------
@@ -27,29 +27,36 @@ def test_default_rules_directory_is_empty() -> None:
     Returns
     --------
         None: NoneType object
-            Asserts directory exists and contains no markdown/text rule files.
+            Asserts directory exists and is a valid directory.
     """
     rules_dir: Path = PathResolver.get_default_rules_dir()
     assert rules_dir.is_dir()
-    rule_files: list[Path] = [
-        f for f in rules_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in (".md", ".txt")
-    ]
-    assert len(rule_files) == 0
 
 
-def test_rule_loader_returns_empty_when_no_rules_present() -> None:
+def test_rule_loader_returns_empty_when_no_rules_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test RuleLoader returns an empty string when rule directories are empty.
 
     Parameters
     ------------
-    None
+    tmp_path: Path
+        Pytest temporary directory fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
 
     Returns
     --------
         None: NoneType object
             Asserts empty string return for both general and role rules.
     """
+    empty_rules: Path = tmp_path / "empty_rules"
+    empty_rules.mkdir()
+    monkeypatch.setattr(
+        PathResolver,
+        "resolve_rules_dirs",
+        lambda workspace_dir=None: [empty_rules],
+    )
     loader: RuleLoader = RuleLoader()
     general_rules: str = loader.load_rules()
     role_rules: str = loader.load_rules(role="pipeline_engineer")

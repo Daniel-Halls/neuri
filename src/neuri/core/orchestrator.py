@@ -100,6 +100,9 @@ class DAGOrchestrator:
         "eeg-meg-pipeline": "electrophys_specialist",
         "remote-compute-slurm": "compute_operator",
         "scientific-writing-neuro": "scientific_writer",
+        "scientific-writer": "scientific_writer",
+        "researcher-mode": "coordinator",
+        "notebooklm": "scientific_writer",
     }
 
     def __init__(
