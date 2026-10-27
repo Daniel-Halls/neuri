@@ -628,12 +628,12 @@ class ShellCommandExecutor:
                 Renderable markdown report card.
         """
         status_badge: str = (
-            ""
+            " (✓ Success)"
             if result.exit_code == 0
-            else f"ERROR: Exit Code: {result.exit_code}"
+            else f" (✗ Exit Code: {result.exit_code})"
         )
         lines: list[str] = [
-            f"### Machine: `{result.host}`{status_badge}\n",
+            f"### Shell Output: `{result.host}`{status_badge}\n",
         ]
 
         if result.stdout.strip():

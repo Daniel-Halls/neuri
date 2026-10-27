@@ -9,6 +9,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Coroutine
+import uuid
+import webbrowser
 
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
@@ -18,9 +20,17 @@ from neuri.core.config import NeuriConfig, init_project_workspace, load_config
 from neuri.core.installer import NeuriInstaller
 from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.paths import PathResolver
+from neuri.core.schemas import (
+    NiiVueLayerSpec,
+    NiiVueSceneSpec,
+    RemoteArtifact,
+    TaskNode,
+    TaskState,
+)
 from neuri.remote.bootstrap import RemoteHostBootstrapper
 from neuri.remote.monitor import RemoteHostMonitor
 from neuri.remote.slurm_bridge import DetachAndReconcileManager
+from neuri.viewer.niivue_bridge import NiiVueBridge
 
 
 class SlashCommandResult(BaseModel):
@@ -93,7 +103,11 @@ class SlashCommandRouter:
         "/jobs",
         "/shell",
         "/sh",
+        "/history",
+        "/hist",
         "/theme",
+        "/plan",
+        "/run",
         "/view",
         "/retry",
         "/cancel",
@@ -140,6 +154,7 @@ class SlashCommandRouter:
             if skills_index_path is not None
             else PathResolver.get_default_skills_index()
         )
+        self._last_planned_workflow_id: str | None = None
 
     def is_slash_command(self, text: str) -> bool:
         """Check if an input string is formatted as a slash command.
@@ -204,6 +219,10 @@ class SlashCommandRouter:
             return self._handle_history(args)
         elif cmd == "/theme":
             return self._handle_theme(args)
+        elif cmd == "/plan":
+            return self._handle_plan(args)
+        elif cmd == "/run":
+            return self._handle_run(args)
         elif cmd == "/view":
             return self._handle_view(args)
         elif cmd == "/retry":
@@ -418,12 +437,51 @@ class SlashCommandRouter:
 
         init_status: str = "Yes" if is_init else "No (type /init to initialize)"
         cost_limit: str = f"${self._config.budgets.max_workflow_cost_usd:.2f}"
+
+        wf_info: str = "None"
+        node_counts_str: str = "0 nodes"
+        total_artifacts: int = 0
+        total_citations: int = 0
+        try:
+            workflows = self._blackboard.list_workflows()
+            if workflows:
+                latest_wf = workflows[-1]
+                wf_id = latest_wf["workflow_id"]
+                wf_status = latest_wf.get("status", "UNKNOWN")
+                wf_info = f"`{wf_id}` ({wf_status})"
+
+                nodes = self._blackboard.get_nodes_by_workflow(wf_id)
+                comp = sum(1 for n in nodes if n.state == TaskState.COMPLETED)
+                run = sum(1 for n in nodes if n.state == TaskState.RUNNING)
+                wait = sum(
+                    1 for n in nodes if n.state == TaskState.WAITING_OPERATOR
+                )
+                pend = sum(1 for n in nodes if n.state == TaskState.PENDING)
+                fail = sum(1 for n in nodes if n.state == TaskState.FAILED)
+                node_counts_str = (
+                    f"✓ {comp} Completed  │  ⠋ {run} Running  │  "
+                    f"⚠ {wait} Paused  │  ○ {pend} Pending"
+                )
+                if fail:
+                    node_counts_str += f"  │  ✗ {fail} Failed"
+
+            artifacts = self._blackboard.list_artifacts()
+            total_artifacts = len(artifacts)
+            citations = self._blackboard.list_citations()
+            total_citations = len(citations)
+        except Exception:
+            pass
+
         msg: str = (
             f"### Neuri System Status\n\n"
             f"- **Workspace Directory:** `{self._workspace_dir}`\n"
             f"- **Initialized (.neuri):** `{init_status}`\n"
             f"- **Default Remote Host:** `{remote_host}`\n"
             f"- **Default Harness:** `{harness_default}`\n"
+            f"- **Active Workflow:** {wf_info}\n"
+            f"- **Workflow Nodes:** {node_counts_str}\n"
+            f"- **Registered Artifacts:** `{total_artifacts}` volumes / files\n"
+            f"- **Verified Citations:** `{total_citations}` references\n"
             f"- **Max Node Tokens:** `{self._config.budgets.max_node_tokens:,}`\n"
             f"- **Max Workflow Cost:** `{cost_limit}`\n"
         )
@@ -435,6 +493,8 @@ class SlashCommandRouter:
                 "workspace_initialized": is_init,
                 "remote_host": remote_host,
                 "default_harness": harness_default,
+                "artifacts_count": total_artifacts,
+                "citations_count": total_citations,
             },
         )
 
@@ -480,6 +540,28 @@ class SlashCommandRouter:
             elif hasattr(self._config.harness_routing, "role_map"):
                 self._config.harness_routing.role_map[role] = h_id
                 routing_map[role] = h_id
+
+            cfg_path: Path = (
+                self._workspace_dir / ".neuri" / "config.toml"
+                if (self._workspace_dir / ".neuri" / "config.toml").is_file()
+                else Path.home() / ".neuri" / "config.toml"
+            )
+            if cfg_path.is_file():
+                try:
+                    import tomllib
+                    import tomli_w
+
+                    raw_cfg: dict[str, Any] = tomllib.loads(
+                        cfg_path.read_text(encoding="utf-8")
+                    )
+                    if "harness_routing" not in raw_cfg:
+                        raw_cfg["harness_routing"] = {}
+                    raw_cfg["harness_routing"][role] = {"harness": h_id}
+                    cfg_path.write_text(
+                        tomli_w.dumps(raw_cfg), encoding="utf-8"
+                    )
+                except Exception:
+                    pass
 
             msg: str = (
                 f"Updated harness routing: Sub-agent role `{role}` is now "
@@ -1084,27 +1166,189 @@ class SlashCommandRouter:
             data={"theme_name": matched.name},
         )
 
+    def _handle_plan(self, args: list[str]) -> SlashCommandResult:
+        """Decompose natural language prompt into DAG without auto-executing.
+
+        Parameters
+        ------------
+        args: list[str]
+            User research prompt string.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                DAG preview card with role assignments and instructions.
+        """
+        prompt: str = " ".join(args).strip()
+        if not prompt:
+            help_msg: str = (
+                "### Neuri DAG Planner\n\n"
+                "**Usage:** `/plan <research instruction or pipeline>`\n\n"
+                "*Example:* `/plan Run skull-stripping with BET and generate QA`"
+            )
+            return SlashCommandResult(
+                command="/plan",
+                success=False,
+                markdown_output=help_msg,
+            )
+
+        wf_id: str = self._orchestrator.plan_workflow_from_prompt(prompt)
+        self._last_planned_workflow_id = wf_id
+        nodes: list[TaskNode] = self._blackboard.get_nodes_by_workflow(wf_id)
+
+        rows: list[str] = [
+            f"### Planned Research DAG: `{wf_id}`\n",
+            f"**Instruction:** {prompt}\n",
+            "| Step | Node ID | Specialist Role | Harness | State |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for idx, node in enumerate(nodes, start=1):
+            rows.append(
+                f"| {idx} | `{node.node_id}` | `{node.agent_role}` | "
+                f"`{node.harness_id}` | `○ {node.state.value}` |"
+            )
+
+        rows.append(
+            "\nTo execute this workflow, enter `/run` or ask me to modify it."
+        )
+        plan_md: str = "\n".join(rows)
+
+        return SlashCommandResult(
+            command="/plan",
+            success=True,
+            markdown_output=plan_md,
+            data={"workflow_id": wf_id, "nodes_count": len(nodes)},
+        )
+
+    def _handle_run(self, args: list[str]) -> SlashCommandResult:
+        """Execute a planned or pending research DAG.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional workflow identifier. Defaults to last planned workflow.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Execution trigger action result.
+        """
+        wf_id: str | None = None
+        if args:
+            wf_id = args[0].strip()
+        elif self._last_planned_workflow_id is not None:
+            wf_id = self._last_planned_workflow_id
+        else:
+            workflows = self._blackboard.list_workflows()
+            for wf in reversed(workflows):
+                candidate_id: str = wf["workflow_id"]
+                pending_nodes = [
+                    n
+                    for n in self._blackboard.get_nodes_by_workflow(candidate_id)
+                    if n.state in (TaskState.PENDING, TaskState.WAITING_OPERATOR)
+                ]
+                if pending_nodes:
+                    wf_id = candidate_id
+                    break
+
+        if wf_id is None:
+            err_msg: str = (
+                "No planned or pending workflows found to execute.\n\n"
+                "Use `/plan <instruction>` to preview a DAG, or enter your "
+                "prompt directly to plan and execute automatically."
+            )
+            return SlashCommandResult(
+                command="/run",
+                success=False,
+                markdown_output=err_msg,
+            )
+
+        run_msg: str = (
+            f"### Executing Workflow: `{wf_id}`\n\n"
+            f"Dispatched DAG wave execution to orchestrator."
+        )
+        return SlashCommandResult(
+            command="/run",
+            success=True,
+            markdown_output=run_msg,
+            action="resume_workflow",
+            data={"workflow_id": wf_id},
+        )
+
     def _handle_view(self, args: list[str]) -> SlashCommandResult:
         """Launch or inspect local NiiVue WebGL2 visualization bridge.
 
         Parameters
         ------------
         args: list[str]
-            Optional artifact URI or file path to view.
+            Optional artifact URI, file path, or flags (e.g. '--no-open').
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
                 Visualization link and instructions card.
         """
-        viewer_url: str = "http://localhost:8421"
-        target_uri: str = args[0].strip() if args else ""
+        no_open: bool = "--no-open" in args
+        clean_args: list[str] = [a for a in args if a != "--no-open"]
+
+        bridge: NiiVueBridge = NiiVueBridge.get_instance()
+        if not bridge.is_running():
+            try:
+                bridge.start()
+            except Exception:
+                pass
+
+        viewer_url: str = bridge.get_url()
+        target_uri: str = clean_args[0].strip() if clean_args else ""
+
+        if not target_uri:
+            try:
+                artifacts: list[RemoteArtifact] = (
+                    self._blackboard.list_artifacts()
+                )
+                vol_exts: tuple[str, ...] = (
+                    ".nii",
+                    ".nii.gz",
+                    ".mgh",
+                    ".mgz",
+                    ".dcm",
+                )
+                for art in reversed(artifacts):
+                    if any(art.uri.lower().endswith(ext) for ext in vol_exts):
+                        target_uri = art.uri
+                        break
+            except Exception:
+                pass
+
+        if target_uri:
+            scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
+            spec: NiiVueSceneSpec = NiiVueSceneSpec(
+                scene_id=scene_id,
+                title=f"Neuri: {Path(target_uri).name}",
+                volumes=[
+                    NiiVueLayerSpec(
+                        artifact_uri=target_uri,
+                        colormap="gray",
+                        opacity=1.0,
+                    )
+                ],
+            )
+            bridge.push_scene(spec)
+
+        if not no_open:
+            try:
+                webbrowser.open(viewer_url)
+            except Exception:
+                pass
+
         if target_uri:
             msg: str = (
-                f"### NiiVue Visualization Bridge\n\n"
+                f"### NiiVue WebGL2 Visualization Bridge\n\n"
                 f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
-                f"- **Target Artifact:** `{target_uri}`\n\n"
-                f"Open the link above in your browser to inspect this volume."
+                f"- **Active Volume:** `{target_uri}`\n"
+                f"- **Status:** Scene updated and browser opened.\n\n"
+                f"*Controls:* Drag to slice, Right-click to zoom, "
+                f"Scroll to cycle slices."
             )
             return SlashCommandResult(
                 command="/view",
@@ -1112,10 +1356,12 @@ class SlashCommandRouter:
                 markdown_output=msg,
                 data={"viewer_url": viewer_url, "target_uri": target_uri},
             )
+
         msg_default: str = (
-            f"### NiiVue Visualization Bridge\n\n"
-            f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n\n"
-            f"Active WebGL2 neuroimaging session listening on port 8421."
+            f"### NiiVue WebGL2 Visualization Bridge\n\n"
+            f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
+            f"- **Status:** Bridge listening on port 8421.\n\n"
+            f"Pass a volume path or URI to inspect (e.g. `/view sub-01_T1w.nii.gz`)."
         )
         return SlashCommandResult(
             command="/view",
@@ -1125,38 +1371,86 @@ class SlashCommandRouter:
         )
 
     def _handle_retry(self, args: list[str]) -> SlashCommandResult:
-        """Retry a node paused in WAITING_OPERATOR.
+        """Retry a node paused in WAITING_OPERATOR or FAILED.
 
         Parameters
         ------------
         args: list[str]
-            Arguments containing the node_id to retry.
+            Optional node_id and operator feedback string.
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
-                Retry outcome card.
+                Retry outcome card with workflow resumption trigger.
         """
-        if not args:
+        node_id: str | None = None
+        feedback: str = ""
+
+        if args:
+            if args[0].startswith("node_"):
+                node_id = args[0].strip()
+                if len(args) > 1:
+                    feedback = " ".join(args[1:]).strip()
+            else:
+                feedback = " ".join(args).strip()
+
+        target_wf_id: str | None = None
+        if node_id is None:
+            workflows = self._blackboard.list_workflows()
+            for wf in reversed(workflows):
+                curr_wf_id: str = wf["workflow_id"]
+                nodes = self._blackboard.get_nodes_by_workflow(curr_wf_id)
+                for n in reversed(nodes):
+                    if n.state in (
+                        TaskState.WAITING_OPERATOR,
+                        TaskState.FAILED,
+                    ):
+                        node_id = n.node_id
+                        target_wf_id = curr_wf_id
+                        break
+                if node_id is not None:
+                    break
+
+        if node_id is None:
             return SlashCommandResult(
                 command="/retry",
                 success=False,
-                markdown_output="Usage: `/retry <node_id>`",
+                markdown_output=(
+                    "No nodes are currently paused in `WAITING_OPERATOR` "
+                    "or `FAILED` state."
+                ),
             )
 
-        node_id: str = args[0].strip()
+        if target_wf_id is None:
+            target_node = self._blackboard.get_node(node_id)
+            if target_node is not None:
+                target_wf_id = target_node.workflow_id
+
         ok: bool = self._orchestrator.retry_node(node_id)
         if ok:
+            fb_note: str = (
+                f"\n- **Operator Guidance:** {feedback}" if feedback else ""
+            )
             msg: str = (
-                f"Node `{node_id}` reset to `PENDING` state and queued "
-                f"for execution."
+                f"### Node Resumed\n\n"
+                f"- **Node ID:** `{node_id}`\n"
+                f"- **New State:** `PENDING`"
+                f"{fb_note}\n\n"
+                f"Resuming execution for workflow `{target_wf_id}`..."
             )
             return SlashCommandResult(
                 command="/retry",
                 success=True,
                 markdown_output=msg,
-                data={"node_id": node_id, "new_state": "PENDING"},
+                action="resume_workflow",
+                data={
+                    "node_id": node_id,
+                    "workflow_id": target_wf_id,
+                    "feedback": feedback,
+                    "new_state": "PENDING",
+                },
             )
+
         return SlashCommandResult(
             command="/retry",
             success=False,
@@ -1172,27 +1466,42 @@ class SlashCommandRouter:
         Parameters
         ------------
         args: list[str]
-            Arguments containing the node_id to cancel.
+            Optional node_id to cancel. Defaults to latest paused node.
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
                 Cancellation outcome card.
         """
-        if not args:
+        node_id: str | None = args[0].strip() if args else None
+        if node_id is None:
+            workflows = self._blackboard.list_workflows()
+            for wf in reversed(workflows):
+                curr_wf_id: str = wf["workflow_id"]
+                nodes = self._blackboard.get_nodes_by_workflow(curr_wf_id)
+                for n in reversed(nodes):
+                    if n.state == TaskState.WAITING_OPERATOR:
+                        node_id = n.node_id
+                        break
+                if node_id is not None:
+                    break
+
+        if node_id is None:
             return SlashCommandResult(
                 command="/cancel",
                 success=False,
-                markdown_output="Usage: `/cancel <node_id>`",
+                markdown_output="No nodes are currently paused in `WAITING_OPERATOR`.",
             )
 
-        node_id: str = args[0].strip()
         ok: bool = self._orchestrator.cancel_node(node_id)
         if ok:
             return SlashCommandResult(
                 command="/cancel",
                 success=True,
-                markdown_output=f"Node `{node_id}` transitioned to `CANCELLED`.",
+                markdown_output=(
+                    f"### Node Cancelled\n\n"
+                    f"Node `{node_id}` transitioned to `CANCELLED`."
+                ),
                 data={"node_id": node_id, "new_state": "CANCELLED"},
             )
         return SlashCommandResult(
@@ -1241,15 +1550,17 @@ class SlashCommandRouter:
             "| `/skills` | Browse Tier-0 neuroscience skills catalog |\n"
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
             "| `/status` | View workspace status, blackboard stats, and token usage |\n"
+            "| `/plan <prompt>` | Preview DAG decomposition without auto-executing |\n"
+            "| `/run [id]` | Execute a planned or pending research DAG |\n"
             "| `/harness` | View or update agent role-to-harness routing |\n"
             "| `/remote` | View, bootstrap, or remove remote compute hosts |\n"
             "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
             "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"
             "| `/history [n|clear]` | View or clear command and prompt history |\n"
             "| `/theme [name]` | List or switch visual color themes |\n"
-            "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
-            "| `/retry <node_id>` | Resume a node paused in WAITING_OPERATOR |\n"
-            "| `/cancel <node_id>` | Cancel a paused node in WAITING_OPERATOR |\n"
+            "| `/view [path]` | Open local NiiVue WebGL2 visualization session |\n"
+            "| `/retry [node_id]` | Resume a node paused in WAITING_OPERATOR |\n"
+            "| `/cancel [node_id]` | Cancel a paused node in WAITING_OPERATOR |\n"
             "| `/clear` | Clear the chat screen (preserves SQLite state) |\n"
             "| `/help` | Show this command reference |\n"
             "| `/exit` | Exit the Neuri chat interface |\n\n"
@@ -1280,6 +1591,25 @@ class SlashCommandRouter:
             markdown_output="Exiting Neuri session. Goodbye!",
             action="exit_app",
         )
+
+    async def execute_async(self, command_line: str) -> SlashCommandResult:
+        """Asynchronously dispatch slash command without blocking event loop.
+
+        Parameters
+        ------------
+        command_line: str
+            Raw slash command line string.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Command execution output model.
+        """
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        res: SlashCommandResult = await loop.run_in_executor(
+            None, self.execute, command_line
+        )
+        return res
 
 
 __all__: list[str] = [

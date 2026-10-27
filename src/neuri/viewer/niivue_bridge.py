@@ -265,6 +265,31 @@ class NiiVueBridge:
             Constructed bridge controller.
     """
 
+    _instance: Any = None
+
+    @classmethod
+    def get_instance(
+        cls, host: str = "127.0.0.1", port: int = 8421
+    ) -> "NiiVueBridge":
+        """Retrieve or create singleton NiiVueBridge instance.
+
+        Parameters
+        ------------
+        host: str
+            Binding host address. Defaults to '127.0.0.1'.
+        port: int
+            Binding port number. Defaults to 8421.
+
+        Returns
+        --------
+            NiiVueBridge: NiiVueBridge instance
+                Shared bridge instance.
+        """
+        if cls._instance is None:
+            cls._instance = cls(host=host, port=port)
+        inst: NiiVueBridge = cls._instance
+        return inst
+
     def __init__(self, host: str = "127.0.0.1", port: int = 8421) -> None:
         """Initialize NiiVue bridge configuration.
 
