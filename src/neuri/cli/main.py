@@ -11,6 +11,7 @@ import sys
 from typing import Annotated, Any
 
 from rich.console import Console
+from rich.markdown import Markdown
 import typer
 
 from neuri.core.installer import NeuriInstaller
@@ -69,6 +70,13 @@ class NeuriCLI:
                 help="Execute single prompt or slash command headlessly.",
             ),
         ] = None,
+        dry_run: Annotated[
+            bool,
+            typer.Option(
+                "--dry-run",
+                help="Preview planned DAG and role routing without executing.",
+            ),
+        ] = False,
         version: Annotated[
             bool,
             typer.Option(
@@ -94,6 +102,8 @@ class NeuriCLI:
             Typer command execution context.
         prompt: str | None
             Prompt or slash command for headless execution. Defaults to None.
+        dry_run: bool
+            Preview planned DAG without executing. Defaults to False.
         version: bool
             Whether to display version. Defaults to False.
         workspace: Path | None
@@ -118,6 +128,15 @@ class NeuriCLI:
         target_workspace: Path = (
             workspace if workspace is not None else Path.cwd()
         )
+
+        if dry_run:
+            target_prompt: str = (
+                f"/plan {prompt}" if prompt is not None else "/status"
+            )
+            self._run_headless(
+                prompt=target_prompt, workspace_dir=target_workspace
+            )
+            return
 
         if prompt is not None:
             self._run_headless(prompt=prompt, workspace_dir=target_workspace)
@@ -145,7 +164,10 @@ class NeuriCLI:
             workspace_dir=workspace_dir
         )
         turn: ChatTurn = asyncio.run(engine.submit_user_input(prompt))
-        self.console.print(turn.content)
+        if sys.stdout.isatty():
+            self.console.print(Markdown(turn.content))
+        else:
+            self.console.print(turn.content)
 
     def _run_interactive_tui(self, workspace_dir: Path) -> None:
         """Launch the full Textual interactive chat window in terminal.

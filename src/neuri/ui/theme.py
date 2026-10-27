@@ -133,6 +133,7 @@ class NeuriTheme:
     selection_fg: str = "#ffffff"
     tokens: str = "#f59e0b"
     cost: str = "#a78bfa"
+    surface_elevated: str = "#26334d"
     dark: bool = True
 
     def __post_init__(self) -> None:
@@ -164,6 +165,7 @@ class NeuriTheme:
             ("selection_fg", "#ffffff"),
             ("tokens", "#ffea00"),
             ("cost", "#00ffff"),
+            ("surface_elevated", "#26334d"),
         ]
         for attr, fallback in color_attrs:
             val: Any = getattr(self, attr, None)
@@ -204,6 +206,7 @@ class NeuriTheme:
                 "selection-fg": self.selection_fg,
                 "tokens": self.tokens,
                 "cost": self.cost,
+                "surface-elevated": self.surface_elevated,
             },
         )
         return textual_theme
@@ -223,7 +226,7 @@ class NeuriThemeManager:
             Constructed theme manager utility.
     """
 
-    DEFAULT_THEME_NAME: str = "high_contrast"
+    DEFAULT_THEME_NAME: str = "dark"
 
     def __init__(self, workspace_dir: Path | None = None) -> None:
         """Initialize theme manager with workspace context.
@@ -277,6 +280,7 @@ class NeuriThemeManager:
             sel_fg: str = str(theme_dict.get("selection_fg", fg))
             tokens_val: str = str(theme_dict.get("tokens", warn))
             cost_val: str = str(theme_dict.get("cost", sec))
+            surf_elev: str = str(theme_dict.get("surface_elevated", surf))
 
             loaded_theme: NeuriTheme = NeuriTheme(
                 name=str(theme_dict.get("name", path.stem)),
@@ -304,6 +308,7 @@ class NeuriThemeManager:
                 selection_fg=sel_fg,
                 tokens=tokens_val,
                 cost=cost_val,
+                surface_elevated=surf_elev,
                 dark=bool(theme_dict.get("dark", True)),
             )
             return loaded_theme
@@ -351,7 +356,7 @@ class NeuriThemeManager:
                     themes.append(t)
 
         if not themes:
-            fallback: NeuriTheme = self.get_high_contrast_theme()
+            fallback: NeuriTheme = self.get_dark_theme()
             themes.append(fallback)
 
         return themes
@@ -388,10 +393,50 @@ class NeuriThemeManager:
                 return t
 
         if fallback_to_default:
-            fallback_theme: NeuriTheme = self.get_high_contrast_theme()
+            fallback_theme: NeuriTheme = self.get_dark_theme()
             return fallback_theme
 
         return None
+
+    def get_dark_theme(self) -> NeuriTheme:
+        """Return Obsidian Neuro signature dark theme.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriTheme: NeuriTheme instance
+                Obsidian Neuro theme model.
+        """
+        dark_thm: NeuriTheme = NeuriTheme(
+            name="dark",
+            display_name="Obsidian Neuro",
+            description=(
+                "Deep obsidian terminal palette with sky cyan, violet, "
+                "and clinical neuro accents"
+            ),
+            background="#0b0f17",
+            foreground="#f1f5f9",
+            surface="#1e293b",
+            surface_elevated="#26334d",
+            panel="#111827",
+            border="#334155",
+            primary="#38bdf8",
+            secondary="#a78bfa",
+            accent="#22d3ee",
+            warning="#f59e0b",
+            error="#f43f5e",
+            success="#10b981",
+            muted="#64748b",
+            selection_bg="#1e3a5f",
+            selection_fg="#38bdf8",
+            tokens="#fbbf24",
+            cost="#c084fc",
+            dark=True,
+        )
+        return dark_thm
 
     def get_high_contrast_theme(self) -> NeuriTheme:
         """Return canonical VS Code style high contrast black-and-white theme.

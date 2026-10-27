@@ -194,9 +194,9 @@ def test_theme_manager_active_theme_and_config_persistence(
 
     mgr: NeuriThemeManager = NeuriThemeManager(workspace_dir=tmp_path)
 
-    # Initial default should be high_contrast
+    # Initial default should be dark (Obsidian Neuro)
     initial_theme: str = mgr.get_active_theme_name()
-    assert initial_theme == "high_contrast"
+    assert initial_theme == "dark"
 
     # Set to monokai and verify persistence
     updated: bool = mgr.set_active_theme("monokai")
@@ -257,7 +257,7 @@ def test_slash_command_theme_operations(
     assert switch_res.success is True
     assert switch_res.action == "change_theme"
     assert switch_res.data.get("theme_name") == "dark"
-    assert "Theme Activated: `Neuri Dark`" in switch_res.markdown_output
+    assert "Theme Activated: `Obsidian Neuro`" in switch_res.markdown_output
 
     # 3. /theme with unknown name returns friendly error
     bad_res: SlashCommandResult = router.execute("/theme non_existent_palette")
@@ -319,16 +319,17 @@ def test_theme_template_controls_all_ui_colors(tmp_path: Path) -> None:
     assert dark_thm.muted == "#64748b"
     assert dark_thm.selection_bg == "#1e3a5f"
     assert dark_thm.selection_fg == "#38bdf8"
-    assert dark_thm.tokens == "#f59e0b"
-    assert dark_thm.cost == "#a78bfa"
+    assert dark_thm.tokens == "#fbbf24"
+    assert dark_thm.cost == "#c084fc"
 
     # Test Textual theme variables contain custom semantic theme tokens
     t_theme: Theme = dark_thm.to_textual_theme()
     assert t_theme.variables.get("muted") == "#64748b"
     assert t_theme.variables.get("selection-bg") == "#1e3a5f"
     assert t_theme.variables.get("selection-fg") == "#38bdf8"
-    assert t_theme.variables.get("tokens") == "#f59e0b"
-    assert t_theme.variables.get("cost") == "#a78bfa"
+    assert t_theme.variables.get("tokens") == "#fbbf24"
+    assert t_theme.variables.get("cost") == "#c084fc"
+    assert t_theme.variables.get("surface-elevated") == "#26334d"
 
     # Test TelemetryBar renders with theme colors
     bar: TelemetryBar = TelemetryBar(harness_id="agy")

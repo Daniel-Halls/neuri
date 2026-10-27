@@ -279,7 +279,9 @@ class NeuriSessionEngine:
             ChatTurn: ChatTurn instance
                 Assistant chat turn rendering slash command output.
         """
-        cmd_res: SlashCommandResult = self._slash_router.execute(command_line)
+        cmd_res: SlashCommandResult = (
+            await self._slash_router.execute_async(command_line)
+        )
 
         # If action requested (e.g. reload_config or change_theme)
         if cmd_res.action in ("reload_config", "change_theme"):
@@ -301,6 +303,24 @@ class NeuriSessionEngine:
                 "data": cmd_res.data,
             },
         )
+
+        if cmd_res.action == "resume_workflow":
+            wf_id: str | None = cmd_res.data.get("workflow_id")
+            if wf_id:
+                confirm_turn: ChatTurn = ChatTurn(
+                    turn_id=f"turn_{uuid.uuid4().hex[:12]}",
+                    role=ChatRole.ASSISTANT,
+                    content=cmd_res.markdown_output,
+                )
+                self._turns.append(confirm_turn)
+
+                results: list[NeuriTaskResult] = (
+                    await self._orchestrator.execute_workflow(
+                        workflow_id=wf_id,
+                        on_event=self._forward_telemetry,
+                    )
+                )
+                return self._format_workflow_results(wf_id, results)
 
         assistant_turn: ChatTurn = ChatTurn(
             turn_id=f"turn_{uuid.uuid4().hex[:12]}",
@@ -390,7 +410,25 @@ class NeuriSessionEngine:
             )
         )
 
-        # Step 3: Format assistant response with full agent output
+        return self._format_workflow_results(wf_id, results)
+
+    def _format_workflow_results(
+        self, wf_id: str, results: list[NeuriTaskResult]
+    ) -> ChatTurn:
+        """Format aggregated node execution results into an assistant ChatTurn.
+
+        Parameters
+        ------------
+        wf_id: str
+            Workflow identifier.
+        results: list[NeuriTaskResult]
+            List of node task results.
+
+        Returns
+        --------
+            ChatTurn: ChatTurn instance
+                Assistant turn with formatted execution summary and telemetry.
+        """
         response_blocks: list[str] = []
         all_success: bool = True
         total_tokens: int = 0
@@ -417,7 +455,6 @@ class NeuriSessionEngine:
         )
         summary_lines: list[str] = response_blocks
 
-        # Export provenance history if project workspace exists
         dot_neuri: Path = self._workspace_dir / ".neuri"
         if dot_neuri.is_dir():
             try:

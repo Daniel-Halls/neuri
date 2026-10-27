@@ -11,66 +11,117 @@
       padding: 0;
     }
     body {
-      background-color: #0f172a;
-      color: #f8fafc;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0b0f17;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "JetBrains Mono", monospace;
       overflow: hidden;
       display: flex;
       flex-direction: column;
       height: 100vh;
     }
     header {
-      background-color: #1e293b;
-      padding: 10px 20px;
+      background-color: #111827;
+      padding: 8px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid #334155;
       z-index: 10;
+      gap: 12px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      min-width: 200px;
     }
     .brand h1 {
-      font-size: 1.1rem;
+      font-size: 1.05rem;
       font-weight: 700;
       letter-spacing: 0.05em;
       color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .brand span {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: #94a3b8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 240px;
     }
     .controls {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+    }
+    .segmented-group {
+      display: flex;
+      background: #1e293b;
+      padding: 2px;
+      border-radius: 6px;
+      border: 1px solid #334155;
     }
     button {
-      background: #334155;
-      color: #f8fafc;
-      border: 1px solid #475569;
-      padding: 6px 12px;
+      background: transparent;
+      color: #cbd5e1;
+      border: none;
+      padding: 5px 10px;
       border-radius: 4px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 0.15s ease;
+      transition: all 0.15s ease;
     }
     button:hover {
-      background: #475569;
+      color: #ffffff;
+      background: #334155;
     }
     button.active {
       background: #0284c7;
-      border-color: #38bdf8;
+      color: #ffffff;
       font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+    .layer-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1e293b;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+    .layer-controls select {
+      background: #0b0f17;
+      color: #f1f5f9;
+      border: 1px solid #334155;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      outline: none;
+    }
+    .layer-controls input[type="range"] {
+      width: 70px;
+      accent-color: #38bdf8;
     }
     .status-panel {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: #cbd5e1;
       display: flex;
-      gap: 16px;
+      gap: 14px;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .coord-pill {
+      background: #1e293b;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #334155;
     }
     #canvas-container {
       flex: 1;
@@ -87,13 +138,28 @@
       position: absolute;
       bottom: 12px;
       left: 12px;
-      background: rgba(15, 23, 42, 0.75);
-      backdrop-filter: blur(4px);
+      background: rgba(11, 15, 23, 0.82);
+      backdrop-filter: blur(6px);
       padding: 8px 14px;
       border-radius: 6px;
       border: 1px solid #334155;
       font-size: 0.75rem;
-      line-height: 1.4;
+      line-height: 1.45;
+      pointer-events: none;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    #controls-hint {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(11, 15, 23, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      font-size: 0.7rem;
+      color: #94a3b8;
       pointer-events: none;
     }
   </style>
@@ -102,28 +168,47 @@
 <body>
   <header>
     <div class="brand">
-      <h1>NEURI</h1>
+      <h1>◈ NEURI</h1>
       <span id="scene-title">Waiting for scene manifest...</span>
     </div>
     <div class="controls">
-      <button id="btn-multi" class="active" onclick="setViewMode(0)">Multiplanar</button>
-      <button id="btn-axial" onclick="setViewMode(1)">Axial</button>
-      <button id="btn-coronal" onclick="setViewMode(2)">Coronal</button>
-      <button id="btn-sagittal" onclick="setViewMode(3)">Sagittal</button>
-      <button id="btn-3d" onclick="setViewMode(4)">3D</button>
+      <div class="segmented-group">
+        <button id="btn-multi" class="active" onclick="setViewMode(0)">Multi</button>
+        <button id="btn-axial" onclick="setViewMode(1)">Axial</button>
+        <button id="btn-coronal" onclick="setViewMode(2)">Coronal</button>
+        <button id="btn-sagittal" onclick="setViewMode(3)">Sagittal</button>
+        <button id="btn-3d" onclick="setViewMode(4)">3D</button>
+      </div>
+      <div class="layer-controls">
+        <label for="colormap-select">Colormap:</label>
+        <select id="colormap-select" onchange="onColormapChange(this.value)">
+          <option value="gray">Gray</option>
+          <option value="warm">Warm</option>
+          <option value="cool">Cool</option>
+          <option value="jet">Jet</option>
+          <option value="plasma">Plasma</option>
+          <option value="viridis">Viridis</option>
+          <option value="magma">Magma</option>
+        </select>
+        <label for="opacity-slider">Opacity:</label>
+        <input type="range" id="opacity-slider" min="0" max="100" value="100" oninput="onOpacityChange(this.value)">
+      </div>
     </div>
     <div class="status-panel">
-      <span id="coords-mni">MNI: (0.0, 0.0, 0.0)</span>
-      <span id="intensity-val">Intensity: --</span>
+      <span id="coords-mni" class="coord-pill">MNI: (0.0, 0.0, 0.0)</span>
+      <span id="intensity-val" class="coord-pill">Val: --</span>
     </div>
   </header>
 
   <div id="canvas-container">
     <canvas id="gl"></canvas>
     <div id="hud">
-      <div><strong>Scene ID:</strong> <span id="hud-scene-id">None</span></div>
-      <div><strong>Layers Loaded:</strong> <span id="hud-layers">0</span></div>
+      <div><strong>Scene:</strong> <span id="hud-scene-id">None</span></div>
+      <div><strong>Volumes:</strong> <span id="hud-layers">0</span></div>
       <div><strong>Crosshair:</strong> Active</div>
+    </div>
+    <div id="controls-hint">
+      Drag: slice │ Right-click: zoom │ Scroll: cycle │ Space: crosshair
     </div>
   </div>
 
@@ -137,7 +222,7 @@
         return;
       }
       nv = new niivue.Niivue({
-        backColor: [0.06, 0.09, 0.16, 1.0],
+        backColor: [0.043, 0.059, 0.090, 1.0], // #0B0F17 Obsidian Neuro canvas
         show3Dcrosshair: true,
         loadingText: "Loading neuroimaging volume...",
         onLocationChange: (data) => {
@@ -147,7 +232,7 @@
           }
           if (data && data.values && data.values.length > 0) {
             document.getElementById("intensity-val").innerText =
-              `Intensity: ${data.values[0].value.toFixed(2)}`;
+              `Val: ${data.values[0].value.toFixed(2)}`;
           }
         }
       });
@@ -167,6 +252,19 @@
           else btn.classList.remove("active");
         }
       });
+    }
+
+    function onColormapChange(colormapName) {
+      if (!nv || !nv.volumes || nv.volumes.length === 0) return;
+      nv.setColorMap(nv.volumes[0].id, colormapName);
+      nv.updateGLVolume();
+    }
+
+    function onOpacityChange(val) {
+      if (!nv || !nv.volumes || nv.volumes.length === 0) return;
+      const opacity = parseFloat(val) / 100.0;
+      nv.setOpacity(nv.volumes[0].id, opacity);
+      nv.updateGLVolume();
     }
 
     async function pollScene() {
@@ -191,6 +289,10 @@
             cal_max: v.cal_max
           }));
           await nv.loadVolumes(volumeList);
+          if (scene.volumes[0].colormap) {
+            const sel = document.getElementById("colormap-select");
+            if (sel) sel.value = scene.volumes[0].colormap;
+          }
         }
 
         if (scene.slice_type) {

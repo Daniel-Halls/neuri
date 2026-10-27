@@ -5,6 +5,7 @@ description = "Pure black background with crisp white text, borders, and high co
 background = "#000000"
 foreground = "#ffffff"
 surface = "#000000"
+surface_elevated = "#1f1f1f"
 panel = "#000000"
 border = "#ffffff"
 primary = "#ffffff"
