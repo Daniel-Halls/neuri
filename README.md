@@ -24,19 +24,48 @@ Built around an **interactive chat-first terminal interface** (like `agy` or `cl
 
 Neuri requires **Python 3.12+** and is managed using [`uv`](https://github.com/astral-sh/uv).
 
-### 1. Clone Repository & Install Dependencies
+### Quick Install (Recommended)
+
+Run the automated installer script from the repository root:
+
 ```bash
 git clone https://github.com/your-org/neuri.git
 cd neuri
-
-# Install dependencies and dev tools using uv
-uv sync --all-extras
+./install.sh
 ```
 
-### 2. Verify Installation
+Or using `make`:
+
+```bash
+make install
+```
+
+This single command will:
+1. Verify or install `uv` automatically.
+2. Synchronize project dependencies in the workspace.
+3. Install the executable `neuri` into `~/.local/bin` using `uv tool install --editable . --force`.
+4. Bootstrap and copy all base templates and assets (`global/`, `skills/`, `mcp/`, `rules/`, `themes/`) from `./neuri` into `$HOME/.neuri`.
+5. Ensure `~/.local/bin` is in your shell `PATH` so typing `neuri` anywhere immediately launches Neuri.
+
+### Manual Installation
+
+Alternatively, install manually using `uv`:
+
+```bash
+# 1. Sync dependencies
+uv sync --all-extras
+
+# 2. Install editable CLI tool to ~/.local/bin
+uv tool install --editable . --force
+
+# 3. Bootstrap base assets into ~/.neuri
+neuri install
+```
+
+### Verify Installation
 ```bash
 # Check version
-uv run neuri --version
+neuri --version
 
 # Run the full test suite
 uv run pytest -v

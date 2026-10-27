@@ -81,6 +81,13 @@ class NeuriInstaller:
             "rules",
             "themes",
         ]
+        if self._source_dir.is_dir():
+            for item in sorted(self._source_dir.iterdir()):
+                if item.name.startswith(".") or item.name == "__pycache__":
+                    continue
+                if item.name not in installed_sections:
+                    installed_sections.append(item.name)
+
         result_paths: dict[str, Any] = {
             "target_dir": str(self._target_dir),
             "installed": [],
@@ -93,6 +100,8 @@ class NeuriInstaller:
             if not dst_section.exists():
                 if src_section.is_dir():
                     shutil.copytree(src_section, dst_section)
+                elif src_section.is_file():
+                    shutil.copy2(src_section, dst_section)
                 else:
                     dst_section.mkdir(parents=True, exist_ok=True)
                 result_paths["installed"].append(section)
@@ -101,6 +110,8 @@ class NeuriInstaller:
                     shutil.copytree(
                         src_section, dst_section, dirs_exist_ok=True
                     )
+                elif src_section.is_file():
+                    shutil.copy2(src_section, dst_section)
                 result_paths["installed"].append(section)
 
         # Ensure default hosts.toml and config.toml exist if missing
@@ -116,6 +127,63 @@ class NeuriInstaller:
             )
 
         return result_paths
+
+    def is_installed(self) -> bool:
+        """Check whether base Neuri environment is properly installed in target.
+
+        Verifies that target directory exists and contains all required
+        subdirectories and foundational configuration files.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if all required sections exist in target directory,
+                False otherwise.
+        """
+        required_sections: list[str] = [
+            "global",
+            "skills",
+            "mcp",
+            "rules",
+            "themes",
+        ]
+        if not self._target_dir.is_dir():
+            return False
+
+        for section in required_sections:
+            target_sub: Path = self._target_dir / section
+            if not target_sub.exists():
+                return False
+
+        config_file: Path = self._target_dir / "config.toml"
+        if not config_file.is_file():
+            return False
+
+        return True
+
+    def ensure_installed(self, force: bool = False) -> bool:
+        """Ensure base Neuri assets are present in target, installing if missing.
+
+        Parameters
+        ------------
+        force: bool
+            Whether to force overwrite existing assets. Defaults to False.
+
+        Returns
+        --------
+            bool: boolean object
+                True if an installation or update was executed, False if
+                already installed and force was False.
+        """
+        if not force and self.is_installed():
+            return False
+
+        self.install(force=force)
+        return True
 
 
 __all__: list[str] = [

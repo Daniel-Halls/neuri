@@ -110,8 +110,10 @@ class NeuriCLI:
 
         if ctx.invoked_subcommand is not None:
             return
-            self.console.print(f"neuri version {self.VERSION}")
-            return
+
+        # Ensure base environment is installed in ~/.neuri if missing
+        installer: NeuriInstaller = NeuriInstaller()
+        installer.ensure_installed(force=False)
 
         target_workspace: Path = (
             workspace if workspace is not None else Path.cwd()

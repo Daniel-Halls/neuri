@@ -256,3 +256,73 @@ def test_master_prompt_and_mcp_resolution(
     assert "openneuro" in mcp_servers
     assert mcp_servers["remote_worker"]["command"] == "python3"
     assert "neuri_worker.mcp_server" in mcp_servers["remote_worker"]["args"]
+
+
+def test_installer_is_installed_and_ensure_installed(tmp_path: Path) -> None:
+    """Test is_installed and ensure_installed state checks in NeuriInstaller.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts installation state transitions and idempotency.
+    """
+    target_dir: Path = tmp_path / "custom_neuri_target"
+    installer: NeuriInstaller = NeuriInstaller(target_dir=target_dir)
+
+    assert installer.is_installed() is False
+
+    # First ensure_installed executes full install
+    performed: bool = installer.ensure_installed(force=False)
+    assert performed is True
+    assert installer.is_installed() is True
+    assert (target_dir / "skills" / "index.yaml").is_file()
+    assert (target_dir / "global" / "master_prompt.md").is_file()
+
+    # Second ensure_installed without force is a no-op
+    performed_again: bool = installer.ensure_installed(force=False)
+    assert performed_again is False
+
+    # Third ensure_installed with force re-executes install
+    performed_forced: bool = installer.ensure_installed(force=True)
+    assert performed_forced is True
+
+
+def test_cli_auto_bootstraps_neuri_home(
+    cli_runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test CLI automatically bootstraps ~/.neuri if missing during execution.
+
+    Parameters
+    ------------
+    cli_runner: CliRunner
+        Typer test runner fixture.
+    tmp_path: Path
+        Pytest temporary directory fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts home directory assets are auto-populated.
+    """
+    fake_home: Path = tmp_path / "fresh_user_home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+
+    cli: NeuriCLI = NeuriCLI()
+    res: Result = cli_runner.invoke(cli.cli_app, ["-p", "/skills"])
+    assert res.exit_code == 0
+    assert "Neuroscience Skills Catalog" in res.stdout
+
+    # Verify ~/.neuri was automatically scaffolded
+    neuri_home: Path = fake_home / ".neuri"
+    assert (neuri_home / "skills" / "index.yaml").is_file()
+    assert (neuri_home / "global" / "master_prompt.md").is_file()
+    assert (neuri_home / "config.toml").is_file()
+
