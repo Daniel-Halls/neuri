@@ -10,10 +10,55 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
+from rich.color import Color
 from textual.theme import Theme
 import tomli_w
 
 from neuri.core.paths import PathResolver
+
+
+def normalize_color(color_val: str, fallback: str = "#ffffff") -> str:
+    """Normalize and sanitize color string for Rich and Textual compatibility.
+
+    Expands 3-digit hex (#RGB) to 6-digit hex (#RRGGBB), strips alpha from
+    4-digit (#RGBA) and 8-digit (#RRGGBBAA) hex strings, and validates
+    with Rich's Color parser. Falls back to default if color is invalid.
+
+    Parameters
+    ------------
+    color_val: str
+        Raw color string from theme configuration or template.
+    fallback: str
+        Safe fallback hex color string. Defaults to "#ffffff".
+
+    Returns
+    --------
+        str: string object
+            Sanitized, validated Rich-compatible color string.
+    """
+    if not isinstance(color_val, str):
+        return fallback
+
+    cleaned: str = color_val.strip()
+    if cleaned.startswith("#"):
+        hex_digits: str = cleaned[1:]
+        # 3-digit hex #RGB -> #RRGGBB
+        if len(hex_digits) == 3:
+            cleaned = f"#{hex_digits[0]*2}{hex_digits[1]*2}{hex_digits[2]*2}"
+        # 4-digit hex #RGBA -> #RRGGBB (discard alpha)
+        elif len(hex_digits) == 4:
+            cleaned = f"#{hex_digits[0]*2}{hex_digits[1]*2}{hex_digits[2]*2}"
+        # 8-digit hex #RRGGBBAA -> #RRGGBB (discard alpha)
+        elif len(hex_digits) == 8:
+            cleaned = f"#{hex_digits[:6]}"
+
+    try:
+        Color.parse(cleaned)
+        result: str = cleaned
+    except Exception:
+        result = fallback
+
+    return result
 
 
 @dataclass(frozen=True)
@@ -50,6 +95,16 @@ class NeuriTheme:
         Error indicator color.
     success: str
         Success and active shell mode indicator color.
+    muted: str
+        Muted text color for idle or offline items. Defaults to "#888888".
+    selection_bg: str
+        Active selection background color. Defaults to "#1e2430".
+    selection_fg: str
+        Active selection foreground color. Defaults to "#ffffff".
+    tokens: str
+        Token count tally color. Defaults to "#f59e0b".
+    cost: str
+        Monetary cost counter color. Defaults to "#a78bfa".
     dark: bool
         Whether theme is a dark variant. Defaults to True.
 
@@ -73,7 +128,49 @@ class NeuriTheme:
     warning: str = "#f59e0b"
     error: str = "#ef4444"
     success: str = "#10b981"
+    muted: str = "#888888"
+    selection_bg: str = "#1e2430"
+    selection_fg: str = "#ffffff"
+    tokens: str = "#f59e0b"
+    cost: str = "#a78bfa"
     dark: bool = True
+
+    def __post_init__(self) -> None:
+        """Sanitize color attributes to ensure valid Rich and Textual format.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Normalizes color attributes in-place.
+        """
+        color_attrs: list[tuple[str, str]] = [
+            ("background", "#000000"),
+            ("foreground", "#ffffff"),
+            ("surface", "#000000"),
+            ("panel", "#000000"),
+            ("border", "#ffffff"),
+            ("primary", "#ffffff"),
+            ("secondary", "#ffffff"),
+            ("accent", "#00ffff"),
+            ("warning", "#ffea00"),
+            ("error", "#ff0055"),
+            ("success", "#00ff66"),
+            ("muted", "#767676"),
+            ("selection_bg", "#1e2430"),
+            ("selection_fg", "#ffffff"),
+            ("tokens", "#ffea00"),
+            ("cost", "#00ffff"),
+        ]
+        for attr, fallback in color_attrs:
+            val: Any = getattr(self, attr, None)
+            if isinstance(val, str):
+                object.__setattr__(
+                    self, attr, normalize_color(val, fallback=fallback)
+                )
 
     def to_textual_theme(self) -> Theme:
         """Convert this theme into a native Textual Theme instance.
@@ -102,6 +199,11 @@ class NeuriTheme:
             dark=self.dark,
             variables={
                 "border": self.border,
+                "muted": self.muted,
+                "selection-bg": self.selection_bg,
+                "selection-fg": self.selection_fg,
+                "tokens": self.tokens,
+                "cost": self.cost,
             },
         )
         return textual_theme
@@ -159,25 +261,49 @@ class NeuriThemeManager:
             raw_data: dict[str, Any] = tomllib.loads(content)
             theme_dict: dict[str, Any] = raw_data.get("theme", raw_data)
 
+            bg: str = str(theme_dict.get("background", "#000000"))
+            fg: str = str(theme_dict.get("foreground", "#ffffff"))
+            surf: str = str(theme_dict.get("surface", bg))
+            pnl: str = str(theme_dict.get("panel", bg))
+            brd: str = str(theme_dict.get("border", fg))
+            prim: str = str(theme_dict.get("primary", fg))
+            sec: str = str(theme_dict.get("secondary", fg))
+            acc: str = str(theme_dict.get("accent", prim))
+            warn: str = str(theme_dict.get("warning", "#ffea00"))
+            err: str = str(theme_dict.get("error", "#ff0055"))
+            succ: str = str(theme_dict.get("success", "#00ff66"))
+            muted_val: str = str(theme_dict.get("muted", sec))
+            sel_bg: str = str(theme_dict.get("selection_bg", surf))
+            sel_fg: str = str(theme_dict.get("selection_fg", fg))
+            tokens_val: str = str(theme_dict.get("tokens", warn))
+            cost_val: str = str(theme_dict.get("cost", sec))
+
             loaded_theme: NeuriTheme = NeuriTheme(
                 name=str(theme_dict.get("name", path.stem)),
                 display_name=str(
-                    theme_dict.get("display_name", path.stem.replace("_", " ").title())
+                    theme_dict.get(
+                        "display_name", path.stem.replace("_", " ").title()
+                    )
                 ),
                 description=str(
                     theme_dict.get("description", "Custom Neuri color theme.")
                 ),
-                background=str(theme_dict.get("background", "#000000")),
-                foreground=str(theme_dict.get("foreground", "#ffffff")),
-                surface=str(theme_dict.get("surface", "#000000")),
-                panel=str(theme_dict.get("panel", "#000000")),
-                border=str(theme_dict.get("border", "#ffffff")),
-                primary=str(theme_dict.get("primary", "#ffffff")),
-                secondary=str(theme_dict.get("secondary", "#ffffff")),
-                accent=str(theme_dict.get("accent", "#00ffff")),
-                warning=str(theme_dict.get("warning", "#ffea00")),
-                error=str(theme_dict.get("error", "#ff0055")),
-                success=str(theme_dict.get("success", "#00ff66")),
+                background=bg,
+                foreground=fg,
+                surface=surf,
+                panel=pnl,
+                border=brd,
+                primary=prim,
+                secondary=sec,
+                accent=acc,
+                warning=warn,
+                error=err,
+                success=succ,
+                muted=muted_val,
+                selection_bg=sel_bg,
+                selection_fg=sel_fg,
+                tokens=tokens_val,
+                cost=cost_val,
                 dark=bool(theme_dict.get("dark", True)),
             )
             return loaded_theme
@@ -297,6 +423,11 @@ class NeuriThemeManager:
             warning="#ffea00",
             error="#ff0055",
             success="#00ff66",
+            muted="#767676",
+            selection_bg="#ffffff",
+            selection_fg="#000000",
+            tokens="#ffea00",
+            cost="#00ffff",
             dark=True,
         )
         return hc_theme

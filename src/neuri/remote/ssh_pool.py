@@ -40,7 +40,10 @@ class SSHControlMasterPool:
         self._control_dir: Path = (
             control_dir if control_dir is not None else Path.home() / ".ssh"
         )
-        self._control_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._control_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
     def get_control_path_pattern(self) -> str:
         """Return the ControlPath option pattern for OpenSSH.

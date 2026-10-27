@@ -114,6 +114,10 @@ class NeuriSessionEngine:
         if ws_dot_dir.is_dir():
             path: Path = ws_dot_dir / "state.db"
             return path
+        home_dot_dir: Path = Path.home() / ".neuri"
+        if home_dot_dir.is_dir():
+            path_home: Path = home_dot_dir / "state.db"
+            return path_home
         fallback: Path = self._workspace_dir / ".neuri_tmp_state.db"
         return fallback
 

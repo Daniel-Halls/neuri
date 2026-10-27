@@ -15,7 +15,7 @@ from neuri.core.config import NeuriConfig
 from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.slash_commands import SlashCommandResult, SlashCommandRouter
 from neuri.ui.terminal_chat import NeuriChatApp
-from neuri.ui.theme import NeuriTheme, NeuriThemeManager
+from neuri.ui.theme import NeuriTheme, NeuriThemeManager, normalize_color
 
 
 def test_neuri_theme_dataclass_and_textual_conversion() -> None:
@@ -296,3 +296,147 @@ def test_terminal_chat_app_theme_registration_and_apply(
     # Unknown theme should safely keep existing theme without crash
     app.apply_theme("unknown_fake_theme")
     assert app.theme == "nord"
+
+
+def test_theme_template_controls_all_ui_colors(tmp_path: Path) -> None:
+    """Verify that all UI components render colors driven by active theme.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts UI text styling matches theme template definitions.
+    """
+    from neuri.ui.terminal_chat import TelemetryBar
+
+    mgr: NeuriThemeManager = NeuriThemeManager(workspace_dir=tmp_path)
+    dark_thm: NeuriTheme | None = mgr.get_theme("dark")
+    assert dark_thm is not None
+    assert dark_thm.muted == "#64748b"
+    assert dark_thm.selection_bg == "#1e3a5f"
+    assert dark_thm.selection_fg == "#38bdf8"
+    assert dark_thm.tokens == "#f59e0b"
+    assert dark_thm.cost == "#a78bfa"
+
+    # Test Textual theme variables contain custom semantic theme tokens
+    t_theme: Theme = dark_thm.to_textual_theme()
+    assert t_theme.variables.get("muted") == "#64748b"
+    assert t_theme.variables.get("selection-bg") == "#1e3a5f"
+    assert t_theme.variables.get("selection-fg") == "#38bdf8"
+    assert t_theme.variables.get("tokens") == "#f59e0b"
+    assert t_theme.variables.get("cost") == "#a78bfa"
+
+    # Test TelemetryBar renders with theme colors
+    bar: TelemetryBar = TelemetryBar(harness_id="agy")
+    txt = bar.render()
+    rendered_plain: str = txt.plain
+    assert "Harness: agy" in rendered_plain
+    assert "Tokens:" in rendered_plain
+
+    # Verify high contrast theme overrides
+    hc_thm: NeuriTheme = mgr.get_high_contrast_theme()
+    assert hc_thm.selection_bg == "#ffffff"
+    assert hc_thm.selection_fg == "#000000"
+    assert hc_thm.muted == "#767676"
+
+
+def test_normalize_color_various_formats() -> None:
+    """Test normalizer converts hex lengths and handles invalid strings.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts normalization behavior across 3, 4, 6, and 8 hex digits.
+    """
+    assert normalize_color("#fff") == "#ffffff"
+    assert normalize_color("#abc") == "#aabbcc"
+    assert normalize_color("#ffff") == "#ffffff"
+    assert normalize_color("#c300ffff") == "#c300ff"
+    assert normalize_color("#e100ffff") == "#e100ff"
+    assert normalize_color("#00ffff") == "#00ffff"
+    assert normalize_color("cyan") == "cyan"
+    assert normalize_color("invalid_hex", fallback="#000000") == "#000000"
+
+
+def test_neuri_theme_sanitizes_8_digit_hex() -> None:
+    """Verify NeuriTheme auto-normalizes 8-digit hex inputs upon creation.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts theme properties are truncated to Rich-compatible format.
+    """
+    from neuri.ui.terminal_chat import TelemetryBar
+
+    raw_theme: NeuriTheme = NeuriTheme(
+        name="test_raw",
+        display_name="Test Raw",
+        description="Testing raw hex normalization",
+        background="#000000",
+        foreground="#ffffff",
+        surface="#000000",
+        panel="#000000",
+        border="#ffffff",
+        primary="#ffffff",
+        secondary="#ffffff",
+        accent="#c300ffff",
+        cost="#e100ffff",
+        tokens="#ffea00",
+    )
+    assert raw_theme.accent == "#c300ff"
+    assert raw_theme.cost == "#e100ff"
+
+    textual_thm: Theme = raw_theme.to_textual_theme()
+    assert textual_thm.accent == "#c300ff"
+    assert textual_thm.variables.get("cost") == "#e100ff"
+
+    bar: TelemetryBar = TelemetryBar(harness_id="neuri", theme=raw_theme)
+    rendered = bar.render()
+    assert "Harness: neuri" in rendered.plain
+
+    bar.set_theme(raw_theme)
+    rendered_again = bar.render()
+    assert "Harness: neuri" in rendered_again.plain
+
+
+def test_theme_manager_loads_file_with_8_digit_hex(tmp_path: Path) -> None:
+    """Verify loading TOML theme file with 8-digit hex sanitizes colors.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts parsed theme contains sanitized 6-digit hex values.
+    """
+    theme_file: Path = tmp_path / "raw_theme.toml"
+    toml_content: str = (
+        "[theme]\n"
+        "name = \"raw_hc\"\n"
+        "accent = \"#c300ffff\"\n"
+        "cost = \"#e100ffff\"\n"
+    )
+    theme_file.write_text(toml_content, encoding="utf-8")
+
+    mgr: NeuriThemeManager = NeuriThemeManager(workspace_dir=tmp_path)
+    loaded: NeuriTheme | None = mgr.load_theme_from_file(theme_file)
+    assert loaded is not None
+    assert loaded.accent == "#c300ff"
+    assert loaded.cost == "#e100ff"
+
+

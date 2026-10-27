@@ -80,13 +80,13 @@ class MessageCard(Static):
         """
         if self._turn.role == ChatRole.USER:
             yield Label(
-                f"❯ You  ({self._turn.timestamp.strftime('%H:%M:%S')})",
+                f"❯ ({self._turn.timestamp.strftime('%H:%M:%S')})",
                 classes="user-header",
             )
             yield Static(self._turn.content, classes="user-body")
         else:
             yield Label(
-                f"◆ Neuri  ({self._turn.timestamp.strftime('%H:%M:%S')})",
+                f">> Neuri",
                 classes="assistant-header",
             )
             if self._turn.thinking_trace:
@@ -126,6 +126,7 @@ class ComputeSidebar(VerticalScroll):
         self._content: Static = Static(
             "Loading compute fabric...", id="compute-sidebar-content"
         )
+        self._last_machines_data: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         """Compose child widgets inside sidebar.
@@ -139,52 +140,94 @@ class ComputeSidebar(VerticalScroll):
             ComposeResult: ComposeResult generator
                 Yields header label and content widget.
         """
-        yield Label(" 💻 Machines & Jobs [F2] ", id="compute-sidebar-title")
+        yield Label("Machines [F2] ", id="compute-sidebar-title")
         yield self._content
 
-    def update_machines(self, machines_data: list[dict[str, Any]]) -> None:
+    def _get_theme(self) -> NeuriTheme:
+        """Resolve active theme model from parent application context.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriTheme: NeuriTheme instance
+                Current active theme object.
+        """
+        try:
+            chat_app: Any = self.app
+            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
+                return chat_app.active_neuri_theme
+        except Exception:
+            pass
+        return NeuriThemeManager().get_high_contrast_theme()
+
+    def update_machines(
+        self,
+        machines_data: list[dict[str, Any]],
+        theme: NeuriTheme | None = None,
+    ) -> None:
         """Render formatted machine status and active jobs into sidebar.
 
         Parameters
         ------------
         machines_data: list[dict[str, Any]]
             List of machine health and job dictionaries.
+        theme: NeuriTheme | None
+            Optional explicit theme model. Defaults to None.
 
         Returns
         --------
             None: NoneType object
                 Updates text inside sidebar content widget.
         """
+        self._last_machines_data = machines_data
+        active_theme: NeuriTheme = (
+            theme if theme is not None else self._get_theme()
+        )
         if not machines_data:
             self._content.update(
-                "[dim]No attached machines.\nUse /remote bootstrap <host>[/dim]"
+                Text(
+                    "No attached machines.\nUse /remote bootstrap <host>",
+                    style=f"{active_theme.muted}",
+                )
             )
             return
 
         txt: Text = Text()
         for idx, m in enumerate(machines_data):
             if idx > 0:
-                txt.append("\n" + "─" * 26 + "\n")
+                txt.append(
+                    "\n" + "─" * 26 + "\n", style=f"{active_theme.border}"
+                )
             host_name: str = str(m.get("host", "unknown"))
             online: bool = bool(m.get("online", False))
             if online:
-                txt.append("● ", style="bold green")
-                txt.append(f"{host_name}\n", style="bold white")
+                txt.append("● ", style=f"bold {active_theme.success}")
+                txt.append(
+                    f"{host_name}\n", style=f"bold {active_theme.foreground}"
+                )
                 cores: int = int(m.get("cpu_count", 1))
                 load_arr: list[float] = m.get("load_avg", [0.0, 0.0, 0.0])
                 load_s: str = f"{load_arr[0]:.2f}" if load_arr else "-"
-                txt.append(f"  CPUs: {cores} │ Load: {load_s}\n", style="cyan")
+                txt.append(
+                    f"  CPUs: {cores} │ Load: {load_s}\n",
+                    style=f"{active_theme.accent}",
+                )
 
                 n_jobs: list[dict[str, Any]] = m.get("neuri_jobs", [])
                 s_jobs: list[dict[str, Any]] = m.get("slurm_jobs", [])
                 total_jobs: int = len(n_jobs) + len(s_jobs)
                 if total_jobs == 0:
-                    txt.append("  Jobs: Idle\n", style="dim")
+                    txt.append("  Jobs: Idle\n", style=f"{active_theme.muted}")
                 else:
                     for nj in n_jobs:
                         st: str = str(nj.get("state", "RUNNING"))
                         style_tag: str = (
-                            "green" if st == "RUNNING" else "yellow"
+                            active_theme.success
+                            if st == "RUNNING"
+                            else active_theme.warning
                         )
                         txt.append(
                             f"  ▶ [Neuri] {nj.get('job_id')}: {st}\n",
@@ -193,17 +236,40 @@ class ComputeSidebar(VerticalScroll):
                     for sj in s_jobs:
                         st = str(sj.get("state", "R"))
                         style_tag = (
-                            "green" if st in ("R", "RUNNING") else "yellow"
+                            active_theme.success
+                            if st in ("R", "RUNNING")
+                            else active_theme.warning
                         )
                         txt.append(
                             f"  ▶ [Slurm] #{sj.get('slurm_job_id')}: {st}\n",
                             style=style_tag,
                         )
             else:
-                txt.append("○ ", style="bold red")
-                txt.append(f"{host_name} (Offline)\n", style="dim red")
+                txt.append("○ ", style=f"bold {active_theme.error}")
+                txt.append(
+                    f"{host_name} (Offline)\n", style=f"{active_theme.error}"
+                )
 
-        self._content.update(txt)
+        try:
+            self._content.update(txt)
+        except Exception:
+            pass
+
+    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
+        """Re-render content with the newly activated theme palette.
+
+        Parameters
+        ------------
+        theme: NeuriTheme | None
+            Optional updated theme model. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Re-renders sidebar content.
+        """
+        if self._last_machines_data:
+            self.update_machines(self._last_machines_data, theme=theme)
 
 
 class MachineSelectorBar(Static):
@@ -235,6 +301,26 @@ class MachineSelectorBar(Static):
         self._machines: list[str] = ["localhost"]
         self._current_index: int = 0
 
+    def _get_theme(self) -> NeuriTheme:
+        """Resolve active theme model from parent application context.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriTheme: NeuriTheme instance
+                Current active theme object.
+        """
+        try:
+            chat_app: Any = self.app
+            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
+                return chat_app.active_neuri_theme
+        except Exception:
+            pass
+        return NeuriThemeManager().get_high_contrast_theme()
+
     def update_selection(
         self, machines: list[str], current_index: int
     ) -> None:
@@ -256,24 +342,66 @@ class MachineSelectorBar(Static):
         self._current_index = max(
             0, min(current_index, len(self._machines) - 1)
         )
+        self._render_bar()
 
+    def _render_bar(self, theme: NeuriTheme | None = None) -> None:
+        """Render selector bar using active theme palette.
+
+        Parameters
+        ------------
+        theme: NeuriTheme | None
+            Optional explicit theme model. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates widget display.
+        """
+        active_theme: NeuriTheme = (
+            theme if theme is not None else self._get_theme()
+        )
         txt: Text = Text()
-        txt.append("⚡ SHELL ", style="bold green")
-        txt.append("│ Target: ", style="bold cyan")
+        txt.append("⚡ SHELL ", style=f"bold {active_theme.success}")
+        txt.append("│ Target: ", style=f"bold {active_theme.accent}")
         selected_name: str = self._machines[self._current_index]
-        txt.append(f"◀ {selected_name} ▶ ", style="bold yellow")
-        txt.append("│ Machines: ", style="dim")
+        txt.append(f"◀ {selected_name} ▶ ", style=f"bold {active_theme.warning}")
+        txt.append("│ Machines: ", style=f"{active_theme.muted}")
 
         for idx, m in enumerate(self._machines):
             if idx == self._current_index:
-                txt.append(f" [● {m}] ", style="bold green on #14532d")
+                txt.append(
+                    f" [● {m}] ",
+                    style=(
+                        f"bold {active_theme.selection_fg} "
+                        f"on {active_theme.selection_bg}"
+                    ),
+                )
             else:
-                txt.append(f" ○ {m} ", style="dim white")
+                txt.append(f" ○ {m} ", style=f"{active_theme.muted}")
 
         txt.append(
-            " │ (←/→ or ↑/↓: select │ Ctrl+S: exit)", style="italic cyan"
+            " │ (←/→ or ↑/↓: select │ Ctrl+S: exit)",
+            style=f"italic {active_theme.accent}",
         )
-        self.update(txt)
+        try:
+            self.update(txt)
+        except Exception:
+            pass
+
+    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
+        """Re-render selector bar with newly activated theme palette.
+
+        Parameters
+        ------------
+        theme: NeuriTheme | None
+            Optional updated theme model. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Re-renders selector bar display.
+        """
+        self._render_bar(theme=theme)
 
 
 class PromptInput(Input):
@@ -345,13 +473,19 @@ class TelemetryBar(Static):
     status_text: reactive[str] = reactive("Ready")
     machines_summary: reactive[str] = reactive("0 online")
 
-    def __init__(self, harness_id: str = "agy") -> None:
+    def __init__(
+        self,
+        harness_id: str = "agy",
+        theme: NeuriTheme | None = None,
+    ) -> None:
         """Initialize telemetry status bar.
 
         Parameters
         ------------
         harness_id: str
             Harness identifier string. Defaults to 'agy'.
+        theme: NeuriTheme | None
+            Optional theme override model. Defaults to None.
 
         Returns
         --------
@@ -360,6 +494,49 @@ class TelemetryBar(Static):
         """
         super().__init__()
         self._harness_id: str = harness_id
+        self._custom_theme: NeuriTheme | None = theme
+
+    def set_theme(self, theme: NeuriTheme) -> None:
+        """Set an explicit theme override for telemetry bar rendering.
+
+        Parameters
+        ------------
+        theme: NeuriTheme
+            New theme model to apply.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates widget theme state.
+        """
+        self._custom_theme = theme
+        try:
+            self.refresh()
+        except Exception:
+            pass
+
+    def _get_theme(self) -> NeuriTheme:
+        """Resolve active theme model from parent application context.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriTheme: NeuriTheme instance
+                Current active theme object.
+        """
+        if self._custom_theme is not None:
+            return self._custom_theme
+        try:
+            chat_app: Any = self.app
+            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
+                return chat_app.active_neuri_theme
+        except Exception:
+            pass
+        fallback: NeuriTheme = NeuriThemeManager().get_high_contrast_theme()
+        return fallback
 
     def render(self) -> Text:
         """Render formatted rich text for telemetry footer.
@@ -371,20 +548,40 @@ class TelemetryBar(Static):
         Returns
         --------
             Text: Text object
-                Rich text display.
+                Rich text display styled by active theme.
         """
+        theme: NeuriTheme = self._get_theme()
+        label_style: str = f"bold {theme.accent}"
         txt: Text = Text()
-        txt.append(" Harness: ", style="bold cyan")
-        txt.append(f"{self._harness_id} ", style="green")
-        txt.append("│ Machines: ", style="bold cyan")
-        txt.append(f"{self.machines_summary} ", style="green")
-        txt.append("│ Tokens: ", style="bold cyan")
-        txt.append(f"{self.tokens_count:,} ", style="yellow")
-        txt.append("│ Cost: ", style="bold cyan")
-        txt.append(f"${self.cost_usd:.4f} ", style="magenta")
-        txt.append("│ Status: ", style="bold cyan")
-        txt.append(f"{self.status_text}", style="bold green")
+        txt.append(" Harness: ", style=label_style)
+        txt.append(f"{self._harness_id} ", style=f"{theme.success}")
+        txt.append("│ Machines: ", style=label_style)
+        txt.append(f"{self.machines_summary} ", style=f"{theme.success}")
+        txt.append("│ Tokens: ", style=label_style)
+        txt.append(f"{self.tokens_count:,} ", style=f"{theme.tokens}")
+        txt.append("│ Cost: ", style=label_style)
+        txt.append(f"${self.cost_usd:.4f} ", style=f"{theme.cost}")
+        txt.append("│ Status: ", style=label_style)
+        txt.append(f"{self.status_text}", style=f"bold {theme.success}")
         return txt
+
+    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
+        """Re-render telemetry bar with newly activated theme palette.
+
+        Parameters
+        ------------
+        theme: NeuriTheme | None
+            Optional updated theme model. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Refreshes telemetry widget display.
+        """
+        try:
+            self.refresh()
+        except Exception:
+            pass
 
 
 class NeuriChatApp(App[None]):
@@ -407,7 +604,7 @@ class NeuriChatApp(App[None]):
     """
 
     TITLE = "Neuri"
-    SUB_TITLE = "Vendor-Agnostic Neuroscience Meta-Harness (v0.1.0)"
+    SUB_TITLE = "The friendly neuroscientist"
 
     CSS = """
     Screen {
@@ -647,19 +844,7 @@ class NeuriChatApp(App[None]):
             turn_id="welcome_turn",
             role=ChatRole.ASSISTANT,
             content=(
-                "**Welcome to Neuri v0.1.0** — Vendor-Agnostic Neuroscience "
-                "Meta-Harness.\n\n"
-                "- Press `Ctrl+S` to toggle Shell Mode (local & remote).\n"
-                "- In Shell Mode, use `←`/`→` or `↑`/`↓` to select machine.\n"
-                "- Press `F2` to toggle the attached Machines & Compute sidebar.\n"
-                "- Type `/theme [name]` to switch color themes (e.g., "
-                "high_contrast, dark, monokai, nord).\n"
-                "- Type `/machines` to view cluster and remote compute node status.\n"
-                "- Type `/skills` to explore available neuroscience skill packs.\n"
-                "- Type `/init` to initialize project configuration and SQLite state.\n"
-                "- Type `/status` to view active harness and token budgets.\n"
                 "- Type `/help` for all slash commands.\n"
-                "- Or enter any natural language neuroscience research instruction."
             ),
         )
         scroll_area: VerticalScroll = self.query_one(
@@ -670,6 +855,28 @@ class NeuriChatApp(App[None]):
         # Initial machine query and periodic monitor loop
         self.set_interval(15.0, self.refresh_compute_machines)
         asyncio.create_task(self.refresh_compute_machines())
+
+    @property
+    def active_neuri_theme(self) -> NeuriTheme:
+        """Get the active NeuriTheme instance.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriTheme: NeuriTheme instance
+                Currently active theme object.
+        """
+        active_theme_str: str = getattr(self, "theme", "")
+        if active_theme_str:
+            thm: NeuriTheme | None = self._theme_manager.get_theme(
+                active_theme_str
+            )
+            if thm is not None:
+                return thm
+        return self._theme_manager.get_high_contrast_theme()
 
     def apply_theme(self, theme_name: str) -> None:
         """Apply a color theme by name to the Textual user interface.
@@ -691,6 +898,20 @@ class NeuriChatApp(App[None]):
                 self.register_theme(thm.to_textual_theme())
         if clean_name in self.available_themes:
             self.theme = clean_name
+
+        active_thm: NeuriTheme = self.active_neuri_theme
+        if (
+            hasattr(self, "_compute_sidebar")
+            and self._compute_sidebar is not None
+        ):
+            self._compute_sidebar.refresh_theme(active_thm)
+        if (
+            hasattr(self, "_machine_selector_bar")
+            and self._machine_selector_bar is not None
+        ):
+            self._machine_selector_bar.refresh_theme(active_thm)
+        if hasattr(self, "_telemetry_bar") and self._telemetry_bar is not None:
+            self._telemetry_bar.refresh_theme(active_thm)
 
     def action_toggle_sidebar(self) -> None:
         """Toggle visibility of the compute machines and jobs sidebar.
