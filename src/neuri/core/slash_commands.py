@@ -471,7 +471,7 @@ class SlashCommandRouter:
                 fail = sum(1 for n in nodes if n.state == TaskState.FAILED)
                 node_counts_str = (
                     f"✓ {comp} Completed  │  ⠋ {run} Running  │  "
-                    f"⚠ {wait} Paused  │  ○ {pend} Pending"
+                    f"! {wait} Paused  │  ○ {pend} Pending"
                 )
                 if fail:
                     node_counts_str += f"  │  ✗ {fail} Failed"
@@ -831,7 +831,7 @@ class SlashCommandRouter:
         for m in results:
             host_name: str = str(m.get("host", "unknown"))
             online: bool = bool(m.get("online", False))
-            status_badge: str = "🟢 Online" if online else "🔴 Offline"
+            status_badge: str = "● Online" if online else "○ Offline"
             cores: str = str(m.get("cpu_count", "-"))
             load_arr: list[float] = m.get("load_avg", [0.0, 0.0, 0.0])
             load_str: str = (
@@ -1597,7 +1597,7 @@ class SlashCommandRouter:
                 else "None"
             )
             md: str = (
-                "### 🧠 Neuri Brain Status\n\n"
+                "### Neuri Brain Status\n\n"
                 f"- **Global Vault:** `{stats.global_vault_path}` "
                 f"({stats.global_notes_count} notes)\n"
                 f"- **Project Vault:** `{stats.project_vault_path}` "
@@ -1624,7 +1624,7 @@ class SlashCommandRouter:
             g_files = mgr.init_global_vault()
             p_files = mgr.init_project_vault()
             md = (
-                "### 🧠 Neuri Brain Initialized\n\n"
+                "### Neuri Brain Initialized\n\n"
                 f"- **Global Vault:** `{mgr.global_vault}`\n"
                 f"- **Project Vault:** `{mgr.project_vault}`\n"
                 f"- **Scaffolded Notes:** {len(g_files) + len(p_files)} notes\n\n"
@@ -1661,7 +1661,7 @@ class SlashCommandRouter:
             sync_metrics = new_mgr.sync_all()
             stats = new_mgr.get_stats()
             md = (
-                "### 🧠 Global Brain Linked to Obsidian Vault\n\n"
+                "### Global Brain Linked to Obsidian Vault\n\n"
                 f"- **Vault Path:** `{target_path}`\n"
                 f"- **Indexed Notes:** {stats.global_notes_count}\n"
                 f"- **Observations Indexed:** {stats.total_observations_count}\n\n"
@@ -1695,7 +1695,7 @@ class SlashCommandRouter:
                     data={"query": query, "count": 0},
                 )
             lines: list[str] = [
-                f"### 🧠 Brain Search Results for `{query}`\n",
+                f"### Brain Search Results for `{query}`\n",
             ]
             for r in results:
                 lines.append(
@@ -1731,7 +1731,7 @@ class SlashCommandRouter:
                 else "None"
             )
             md = (
-                f"### 🧠 Prior Knowledge Capsule Preview (`{topic}`)\n\n"
+                f"### Prior Knowledge Capsule Preview (`{topic}`)\n\n"
                 f"*Estimated Tokens: ~{capsule.token_estimate} / "
                 f"{self._config.brain.max_auto_inject_tokens} budget*\n"
                 f"*Entities Included: {ent_str}*\n\n"
@@ -1763,7 +1763,7 @@ class SlashCommandRouter:
             )
             mgr.remember_observation(observation=obs)
             md = (
-                "### 🧠 Observation Recorded\n\n"
+                "### Observation Recorded\n\n"
                 f"- **Observation:** `{statement}`\n"
                 "- **Location:** Saved into `00_Index/Quick_Notes.md`."
             )
@@ -1778,7 +1778,7 @@ class SlashCommandRouter:
             sync_metrics = mgr.sync_all()
             stats = mgr.get_stats()
             md = (
-                "### 🧠 Brain Vaults Synchronized\n\n"
+                "### Brain Vaults Synchronized\n\n"
                 f"- **Global Vault:** `{stats.global_notes_count}` notes\n"
                 f"- **Project Vault:** `{stats.project_notes_count}` notes\n"
                 f"- **Total Observations:** `{stats.total_observations_count}`\n"
@@ -1800,7 +1800,7 @@ class SlashCommandRouter:
                 else "Attempted to open Obsidian via URI handler."
             )
             md = (
-                "### 🧠 Opening Vault in Obsidian\n\n"
+                "### Opening Vault in Obsidian\n\n"
                 f"- **Vault Path:** `{mgr.global_vault}`\n"
                 f"- **URI Protocol:** `{uri}`\n\n"
                 f"{obs_status}"
