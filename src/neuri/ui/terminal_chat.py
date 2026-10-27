@@ -91,7 +91,7 @@ class MessageCard(Static):
                 classes="assistant-header",
             )
             if self._turn.thinking_trace:
-                with Collapsible(title="🧠 Reasoning Trace", collapsed=True):
+                with Collapsible(title="Reasoning Trace", collapsed=True):
                     yield Static(
                         self._turn.thinking_trace, classes="thinking-text"
                     )
@@ -197,28 +197,28 @@ class ComputeSidebar(VerticalScroll):
             return
 
         txt: Text = Text()
-        for idx, m in enumerate(machines_data):
+        for idx, machine in enumerate(machines_data):
             if idx > 0:
                 txt.append(
                     "\n" + "─" * 26 + "\n", style=f"{active_theme.border}"
                 )
-            host_name: str = str(m.get("host", "unknown"))
-            online: bool = bool(m.get("online", False))
+            host_name: str = str(machine.get("host", "unknown"))
+            online: bool = bool(machine.get("online", False))
             if online:
                 txt.append("● ", style=f"bold {active_theme.success}")
                 txt.append(
                     f"{host_name}\n", style=f"bold {active_theme.foreground}"
                 )
-                cores: int = int(m.get("cpu_count", 1))
-                load_arr: list[float] = m.get("load_avg", [0.0, 0.0, 0.0])
+                cores: int = int(machine.get("cpu_count", 1))
+                load_arr: list[float] = machine.get("load_avg", [0.0, 0.0, 0.0])
                 load_s: str = f"{load_arr[0]:.2f}" if load_arr else "-"
                 txt.append(
                     f"  CPUs: {cores} │ Load: {load_s}\n",
                     style=f"{active_theme.accent}",
                 )
 
-                n_jobs: list[dict[str, Any]] = m.get("neuri_jobs", [])
-                s_jobs: list[dict[str, Any]] = m.get("slurm_jobs", [])
+                n_jobs: list[dict[str, Any]] = machine.get("neuri_jobs", [])
+                s_jobs: list[dict[str, Any]] = machine.get("slurm_jobs", [])
                 total_jobs: int = len(n_jobs) + len(s_jobs)
                 if total_jobs == 0:
                     txt.append("  Jobs: Idle\n", style=f"{active_theme.muted}")
@@ -362,23 +362,23 @@ class MachineSelectorBar(Static):
             theme if theme is not None else self._get_theme()
         )
         txt: Text = Text()
-        txt.append("⚡ SHELL ", style=f"bold {active_theme.success}")
+        txt.append("SHELL ", style=f"bold {active_theme.success}")
         txt.append("│ Target: ", style=f"bold {active_theme.accent}")
         selected_name: str = self._machines[self._current_index]
         txt.append(f"◀ {selected_name} ▶ ", style=f"bold {active_theme.warning}")
         txt.append("│ Machines: ", style=f"{active_theme.muted}")
 
-        for idx, m in enumerate(self._machines):
+        for idx, machine_name in enumerate(self._machines):
             if idx == self._current_index:
                 txt.append(
-                    f" [● {m}] ",
+                    f" [● {machine_name}] ",
                     style=(
                         f"bold {active_theme.selection_fg} "
                         f"on {active_theme.selection_bg}"
                     ),
                 )
             else:
-                txt.append(f" ○ {m} ", style=f"{active_theme.muted}")
+                txt.append(f" ○ {machine_name} ", style=f"{active_theme.muted}")
 
         txt.append(
             " │ (←/→ or ↑/↓: select │ Ctrl+S: exit)",

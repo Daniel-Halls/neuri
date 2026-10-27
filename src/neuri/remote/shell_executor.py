@@ -7,7 +7,6 @@ results with exit codes, execution duration, and stdout/stderr capture.
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 import time
 from typing import Any
@@ -629,15 +628,12 @@ class ShellCommandExecutor:
                 Renderable markdown report card.
         """
         status_badge: str = (
-            "✓ Success"
+            ""
             if result.exit_code == 0
-            else f"✗ Exit Code: {result.exit_code}"
+            else f"ERROR: Exit Code: {result.exit_code}"
         )
         lines: list[str] = [
-            f"### Shell Output: `{result.host}`",
-            f"**Command:** `{result.command}`  ",
-            f"**Status:** {status_badge}  │  "
-            f"**Duration:** `{result.duration_seconds:.2f}s`\n",
+            f"### Machine: `{result.host}`{status_badge}\n",
         ]
 
         if result.stdout.strip():
