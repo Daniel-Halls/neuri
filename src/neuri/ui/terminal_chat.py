@@ -3,26 +3,29 @@
 Implements the agy-style interactive terminal chat window launched via `neuri`.
 Provides a rich scrollable canvas, slash-command autocompletion, collapsible
 reasoning drawers, and live telemetry status bars.
+
+Styling rule: this module never contains colour literals. Every colour is a
+semantic theme token (``$primary``, ``$muted``, ``$border`` ...) resolved by
+Textual from the active Neuri theme, either in the CSS below or inside
+``Content`` styles. Switching themes therefore restyles every widget live.
 """
 
 import asyncio
-from collections.abc import Generator
-from datetime import datetime, timezone
+import contextlib
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
-from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.content import Content
 from textual.reactive import reactive
 from textual.widgets import (
     Collapsible,
     Footer,
-    Header,
     Input,
-    Label,
     Markdown,
     Static,
 )
@@ -35,6 +38,88 @@ from neuri.remote.shell_executor import (
 )
 from neuri.ui.history import PromptHistoryManager
 from neuri.ui.theme import NeuriTheme, NeuriThemeManager
+
+
+class Glyphs:
+    """Shared text glyphs used across the TUI (no emoji, no pictures).
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        Glyphs: Glyphs class
+            Namespace of plain Unicode text glyphs.
+    """
+
+    BRAND: ClassVar[str] = ">>"
+    DOT_ON: ClassVar[str] = "●"
+    DOT_OFF: ClassVar[str] = "○"
+    PROMPT: ClassVar[str] = "›"
+    SEP: ClassVar[str] = "│"
+    BAR_FULL: ClassVar[str] = "█"
+    BAR_EMPTY: ClassVar[str] = "░"
+    RULE: ClassVar[str] = "─"
+
+
+def render_meter(
+    val: float, max_val: float, width: int, fill_style: str
+) -> Content:
+    """Render a themed Unicode capacity meter such as '████░░░░'.
+
+    Parameters
+    ------------
+    val: float
+        Current numeric value.
+    max_val: float
+        Maximum capacity value.
+    width: int
+        Cell width of the bar.
+    fill_style: str
+        Theme style token applied to the filled cells (e.g. '$primary').
+
+    Returns
+    --------
+        Content: Content object
+            Meter with filled cells in ``fill_style`` and empty cells in
+            ``$border``.
+    """
+    ratio: float = min(1.0, max(0.0, val / max_val)) if max_val > 0.0 else 0.0
+    filled: int = int(round(ratio * width))
+    meter: Content = Content.assemble(
+        (Glyphs.BAR_FULL * filled, fill_style),
+        (Glyphs.BAR_EMPTY * (width - filled), "$border"),
+    )
+    return meter
+
+
+def card_header(glyph: str, label: str, style: str, stamp: str) -> Content:
+    """Build the one-line header shown at the top of each chat card.
+
+    Parameters
+    ------------
+    glyph: str
+        Leading glyph (e.g. '›').
+    label: str
+        Role label text.
+    style: str
+        Theme style token for glyph and label.
+    stamp: str
+        Timestamp string rendered in ``$muted``.
+
+    Returns
+    --------
+        Content: Content object
+            Styled header line.
+    """
+    header: Content = Content.assemble(
+        (f"{glyph} ", f"bold {style}"),
+        (label, f"bold {style}"),
+        ("  ", ""),
+        (stamp, "$muted"),
+    )
+    return header
 
 
 class MessageCard(Static):
@@ -64,19 +149,31 @@ class MessageCard(Static):
             None: NoneType object
                 Initializes widget state.
         """
-        card_class: str = "message-card "
-        if turn.role == ChatRole.USER:
-            if "**[" in turn.content and "$ " in turn.content:
-                card_class += "message-card-shell"
-            else:
-                card_class += "message-card-user"
-        else:
-            if "### Shell Output:" in turn.content:
-                card_class += "message-card-shell"
-            else:
-                card_class += "message-card-assistant"
-        super().__init__(classes=card_class)
         self._turn: ChatTurn = turn
+        self._kind: str = self._classify(turn)
+        super().__init__(classes=f"message-card message-card-{self._kind}")
+
+    @staticmethod
+    def _classify(turn: ChatTurn) -> str:
+        """Classify a turn as 'user', 'assistant', or 'shell'.
+
+        Parameters
+        ------------
+        turn: ChatTurn
+            Chat turn to classify.
+
+        Returns
+        --------
+            str: string object
+                Card kind used for CSS class selection.
+        """
+        if turn.role == ChatRole.USER:
+            is_shell: bool = "**[" in turn.content and "$ " in turn.content
+            kind: str = "shell" if is_shell else "user"
+        else:
+            is_shell_out: bool = "### Shell Output:" in turn.content
+            kind = "shell" if is_shell_out else "assistant"
+        return kind
 
     def compose(self) -> ComposeResult:
         """Compose child widgets inside the message card.
@@ -88,45 +185,374 @@ class MessageCard(Static):
         Returns
         --------
             ComposeResult: ComposeResult generator
-                Yields header label and Markdown body widgets.
+                Yields header label and body widgets.
         """
         time_str: str = self._turn.timestamp.strftime("%H:%M:%S")
-        if self._turn.role == ChatRole.USER:
-            if "**[" in self._turn.content and "$ " in self._turn.content:
-                yield Label(
-                    f"Shell ({time_str})",
-                    classes="shell-header",
-                )
-                yield Markdown(self._turn.content, classes="shell-body")
-            else:
-                yield Label(
-                    f"👤 User ({time_str})",
-                    classes="user-header",
-                )
-                yield Static(self._turn.content, classes="user-body")
+        if self._kind == "user":
+            yield Static(
+                card_header(Glyphs.PROMPT, "you", "$primary", time_str),
+                classes="card-header",
+            )
+            yield Static(Content(self._turn.content), classes="card-body")
+        elif self._kind == "shell":
+            yield Static(
+                card_header(Glyphs.PROMPT, "shell", "$success", time_str),
+                classes="card-header",
+            )
+            yield Markdown(self._turn.content, classes="card-body")
         else:
-            if "### Shell Output:" in self._turn.content:
-                yield Label(
-                    f"Remote Shell ({time_str})",
-                    classes="shell-header",
+            role_label: str = (
+                f"specialist · {self._turn.node_id}"
+                if self._turn.node_id
+                else "neuri"
+            )
+            yield Static(
+                card_header(Glyphs.BRAND, role_label, "$secondary", time_str),
+                classes="card-header",
+            )
+            if self._turn.thinking_trace:
+                with Collapsible(title="reasoning trace", collapsed=True):
+                    yield Static(
+                        Content(self._turn.thinking_trace),
+                        classes="thinking-text",
+                    )
+            yield Markdown(self._turn.content, classes="card-body")
+
+
+class ShellCommandCard(Static):
+    """Prompt-style line echoing a shell command and its target host.
+
+    Parameters
+    ------------
+    host: str
+        Machine alias the command runs on.
+    command: str
+        Shell command text.
+
+    Returns
+    --------
+        ShellCommandCard: ShellCommandCard instance
+            Constructed command echo widget.
+    """
+
+    def __init__(self, host: str, command: str) -> None:
+        """Initialize the command echo line.
+
+        Parameters
+        ------------
+        host: str
+            Machine alias the command runs on.
+        command: str
+            Shell command text.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        line: Content = Content.assemble(
+            (host, "bold $secondary"),
+            (" on ", "$muted"),
+            ("shell", "bold $accent"),
+            ("\n", ""),
+            (f"{Glyphs.PROMPT} ", "bold $primary"),
+            (command, "$foreground"),
+        )
+        super().__init__(line, classes="shell-command")
+
+
+class ShellResultCard(Static):
+    """Terminal-style block rendering stdout, stderr, and exit status.
+
+    Parameters
+    ------------
+    result: ShellExecutionResult
+        Completed shell execution result.
+
+    Returns
+    --------
+        ShellResultCard: ShellResultCard instance
+            Constructed shell output widget.
+    """
+
+    def __init__(self, result: ShellExecutionResult) -> None:
+        """Initialize the output block with exit-status styling.
+
+        Parameters
+        ------------
+        result: ShellExecutionResult
+            Completed shell execution result.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        status: str = "ok" if result.exit_code == 0 else "failed"
+        super().__init__(classes=f"shell-result shell-result-{status}")
+        self._result: ShellExecutionResult = result
+
+    def compose(self) -> ComposeResult:
+        """Compose stdout, stderr, and status footer lines.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            ComposeResult: ComposeResult generator
+                Yields output and footer widgets.
+        """
+        res: ShellExecutionResult = self._result
+        if res.stdout.strip():
+            yield Static(Content(res.stdout.rstrip()), classes="shell-stdout")
+        if res.stderr.strip():
+            yield Static(
+                Content.assemble((res.stderr.rstrip(), "$error")),
+                classes="shell-stderr",
+            )
+        ok: bool = res.exit_code == 0
+        status_style: str = "$success" if ok else "$error"
+        yield Static(
+            Content.assemble(
+                (f"{Glyphs.DOT_ON} ", status_style),
+                (f"exit {res.exit_code}", f"bold {status_style}"),
+                (f"  {Glyphs.SEP}  ", "$border"),
+                (f"{res.duration_seconds:.2f}s", "$muted"),
+                (f"  {Glyphs.SEP}  ", "$border"),
+                (res.host, "$muted"),
+            ),
+            classes="shell-footer",
+        )
+
+
+class WelcomeCard(Static):
+    """Landing panel with workspace status and a quick-action table.
+
+    Parameters
+    ------------
+    workspace_dir: Path
+        Active workspace directory.
+
+    Returns
+    --------
+        WelcomeCard: WelcomeCard instance
+            Constructed welcome widget.
+    """
+
+    COLUMNS: ClassVar[tuple[str, str, str]] = (
+        "Modality",
+        "Quick Action",
+        "Command",
+    )
+    ROWS: ClassVar[list[tuple[str, str, list[tuple[str, str]]]]] = [
+        (
+            "Natural Language",
+            "Decompose & execute research DAG",
+            [("Enter any instruction", "")],
+        ),
+        (
+            "DAG Preview",
+            "Preview execution plan without running",
+            [("/plan <instruction>", "$primary")],
+        ),
+        (
+            "3D Visualization",
+            "Inspect NIfTI / GIfTI in WebGL2 bridge",
+            [("/view [path]", "$primary")],
+        ),
+        (
+            "Status & Jobs",
+            "Inspect nodes, artifacts, and batch queues",
+            [("/status", "$primary"), (" or ", ""), ("/jobs", "$primary")],
+        ),
+        (
+            "Fleet Shell",
+            "Run bash command locally or on cluster",
+            [("!<cmd>", "$primary"), (" or ", ""), ("Ctrl+S", "$primary")],
+        ),
+        (
+            "Command Help",
+            "List all interactive slash commands",
+            [("/help", "$primary")],
+        ),
+    ]
+
+    def __init__(self, workspace_dir: Path) -> None:
+        """Initialize welcome card for a workspace.
+
+        Parameters
+        ------------
+        workspace_dir: Path
+            Active workspace directory.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        super().__init__(classes="welcome-card")
+        self._workspace_dir: Path = workspace_dir
+
+    def _status_line(self) -> Content:
+        """Build the workspace / state / theme status line.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Content: Content object
+                Styled status line.
+        """
+        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
+        state_part: tuple[str, str] = (
+            (" Initialized ", "bold $selection-fg on $selection-bg")
+            if is_init
+            else (" Uninitialized - run /init ", "bold $background on $warning")
+        )
+        theme_name: str = str(getattr(self.app, "theme", "") or "default")
+        sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
+        line: Content = Content.assemble(
+            (f"{Glyphs.DOT_ON} ", "$secondary"),
+            ("Workspace: ", "bold $foreground"),
+            (str(self._workspace_dir), "$primary"),
+            sep,
+            ("State: ", "bold $foreground"),
+            state_part,
+            sep,
+            ("Theme: ", "bold $foreground"),
+            (theme_name, "$accent"),
+        )
+        return line
+
+    def _column_widths(self) -> list[int]:
+        """Compute padded column widths for the quick-action table.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[int]: list object
+                Cell widths including one space of padding on each side.
+        """
+        widths: list[int] = [len(col) for col in self.COLUMNS]
+        for modality, action, command in self.ROWS:
+            cmd_len: int = sum(len(text) for text, _ in command)
+            widths[0] = max(widths[0], len(modality))
+            widths[1] = max(widths[1], len(action))
+            widths[2] = max(widths[2], cmd_len)
+        padded: list[int] = [w + 2 for w in widths]
+        return padded
+
+    @staticmethod
+    def _rule(widths: list[int], left: str, mid: str, right: str) -> Content:
+        """Build a horizontal table rule such as '├────┼────┤'.
+
+        Parameters
+        ------------
+        widths: list[int]
+            Padded column widths.
+        left: str
+            Left corner / junction glyph.
+        mid: str
+            Inner junction glyph.
+        right: str
+            Right corner / junction glyph.
+
+        Returns
+        --------
+            Content: Content object
+                Rule line styled with ``$border``.
+        """
+        body: str = mid.join(Glyphs.RULE * w for w in widths)
+        rule: Content = Content.assemble((f"{left}{body}{right}\n", "$border"))
+        return rule
+
+    @staticmethod
+    def _row(widths: list[int], cells: list[list[tuple[str, str]]]) -> Content:
+        """Build one bordered table row from styled cell fragments.
+
+        Parameters
+        ------------
+        widths: list[int]
+            Padded column widths.
+        cells: list[list[tuple[str, str]]]
+            Per-column list of (text, style) fragments.
+
+        Returns
+        --------
+            Content: Content object
+                Row line with ``$border`` separators.
+        """
+        parts: list[str | Content | tuple[str, str]] = [(Glyphs.SEP, "$border")]
+        for width, fragments in zip(widths, cells, strict=True):
+            used: int = sum(len(text) for text, _ in fragments)
+            parts.append(" ")
+            parts.extend(fragments)
+            parts.append(" " * (width - used - 1))
+            parts.append((Glyphs.SEP, "$border"))
+        parts.append("\n")
+        row: Content = Content.assemble(*parts)
+        return row
+
+    def _table(self) -> Content:
+        """Build the full quick-action table.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Content: Content object
+                Box-drawn table using theme tokens only.
+        """
+        widths: list[int] = self._column_widths()
+        header_cells: list[list[tuple[str, str]]] = [
+            [(col, "bold $secondary")] for col in self.COLUMNS
+        ]
+        parts: list[str | Content | tuple[str, str]] = [
+            self._rule(widths, "┌", "┬", "┐"),
+            self._row(widths, header_cells),
+        ]
+        for modality, action, command in self.ROWS:
+            parts.append(self._rule(widths, "├", "┼", "┤"))
+            parts.append(
+                self._row(
+                    widths,
+                    [[(modality, "$foreground")], [(action, "$foreground")],
+                     command],
                 )
-                yield Markdown(self._turn.content, classes="shell-body")
-            else:
-                role_label: str = (
-                    f"Specialist ({self._turn.node_id})"
-                    if self._turn.node_id
-                    else ">> Neuri"
-                )
-                yield Label(
-                    role_label,
-                    classes="assistant-header",
-                )
-                if self._turn.thinking_trace:
-                    with Collapsible(title="Reasoning Trace", collapsed=True):
-                        yield Static(
-                            self._turn.thinking_trace, classes="thinking-text"
-                        )
-                yield Markdown(self._turn.content, classes="assistant-body")
+            )
+        parts.append(self._rule(widths, "└", "┴", "┘"))
+        table: Content = Content.assemble(*parts)
+        return table
+
+    def render(self) -> Content:
+        """Render title, status line, and quick-action table.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Content: Content object
+                Complete welcome panel content.
+        """
+        welcome: Content = Content.assemble(
+            (f"{Glyphs.BRAND} NEURI", "bold $primary"),
+            (" - Neuroscience Meta-Harness\n\n", "bold $primary"),
+            self._status_line(),
+            "\n\n",
+            self._table(),
+        )
+        return welcome.rstrip()
 
 
 class ComputeSidebar(VerticalScroll):
@@ -142,6 +568,9 @@ class ComputeSidebar(VerticalScroll):
             Constructed compute sidebar widget.
     """
 
+    RULE_WIDTH: ClassVar[int] = 28
+    METER_WIDTH: ClassVar[int] = 8
+
     def __init__(self) -> None:
         """Initialize compute sidebar widget.
 
@@ -155,8 +584,11 @@ class ComputeSidebar(VerticalScroll):
                 Initializes widget state.
         """
         super().__init__(id="compute-sidebar")
+        self.border_title = "Machines"
+        self.border_subtitle = "F2"
         self._content: Static = Static(
-            "Loading compute fabric...", id="compute-sidebar-content"
+            Content.assemble(("Loading compute fabric...", "$muted")),
+            id="compute-sidebar-content",
         )
         self._last_machines_data: list[dict[str, Any]] = []
 
@@ -170,71 +602,105 @@ class ComputeSidebar(VerticalScroll):
         Returns
         --------
             ComposeResult: ComposeResult generator
-                Yields header label and content widget.
+                Yields content widget.
         """
-        yield Label("Machines [F2] ", id="compute-sidebar-title")
         yield self._content
 
-    def _get_theme(self) -> NeuriTheme:
-        """Resolve active theme model from parent application context.
-
-        Parameters
-        ------------
-        None
-
-        Returns
-        --------
-            NeuriTheme: NeuriTheme instance
-                Current active theme object.
-        """
-        try:
-            chat_app: Any = self.app
-            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
-                return chat_app.active_neuri_theme
-        except Exception:
-            pass
-        return NeuriThemeManager().get_high_contrast_theme()
-
     @staticmethod
-    def _render_meter(
-        val: float, max_val: float = 100.0, width: int = 8
-    ) -> str:
-        """Render a Unicode progress meter.
+    def _load_style(load_val: float, cores: int) -> str:
+        """Choose a semantic style for a host's load relative to its cores.
 
         Parameters
         ------------
-        val: float
-            Current numeric value.
-        max_val: float
-            Maximum value. Defaults to 100.0.
-        width: int
-            Cell width of the bar. Defaults to 8.
+        load_val: float
+            One-minute load average.
+        cores: int
+            Number of CPU cores.
 
         Returns
         --------
             str: string object
-                Unicode bar string like '████░░░░'.
+                '$primary' when healthy, '$warning' when busy, '$error' when
+                oversubscribed.
         """
-        ratio: float = (
-            min(1.0, max(0.0, val / max_val)) if max_val > 0.0 else 0.0
-        )
-        filled: int = int(round(ratio * width))
-        bar: str = "█" * filled + "░" * (width - filled)
-        return bar
+        ratio: float = load_val / max(1, cores)
+        style: str = "$primary"
+        if ratio >= 1.0:
+            style = "$error"
+        elif ratio >= 0.75:
+            style = "$warning"
+        return style
 
-    def update_machines(
-        self,
-        machines_data: list[dict[str, Any]],
-        theme: NeuriTheme | None = None,
-    ) -> None:
+    def _machine_block(
+        self, machine: dict[str, Any]
+    ) -> list[str | Content | tuple[str, str]]:
+        """Build the styled lines describing one machine.
+
+        Parameters
+        ------------
+        machine: dict[str, Any]
+            Machine health and job dictionary.
+
+        Returns
+        --------
+            list[str | Content | tuple[str, str]]: list object
+                Content fragments for this machine.
+        """
+        host_name: str = str(machine.get("host", "unknown"))
+        if not bool(machine.get("online", False)):
+            offline: list[str | Content | tuple[str, str]] = [
+                (f"{Glyphs.DOT_OFF} ", "bold $error"),
+                (f"{host_name}\n", "bold $foreground"),
+                ("  offline\n", "$error"),
+            ]
+            return offline
+
+        cores: int = int(machine.get("cpu_count", 1))
+        load_arr: list[float] = machine.get("load_avg", [0.0, 0.0, 0.0])
+        load_val: float = float(load_arr[0]) if load_arr else 0.0
+        load_s: str = f"{load_val:.2f}" if load_arr else "-"
+        load_style: str = self._load_style(load_val, cores)
+        parts: list[str | Content | tuple[str, str]] = [
+            (f"{Glyphs.DOT_ON} ", "bold $success"),
+            (f"{host_name}\n", "bold $foreground"),
+            ("  Load  ", "$muted"),
+            render_meter(
+                load_val, max(1.0, float(cores)), self.METER_WIDTH, load_style
+            ),
+            (f" {load_s}\n", load_style),
+            ("  CPUs  ", "$muted"),
+            (f"{cores} cores\n", "$foreground"),
+        ]
+
+        n_jobs: list[dict[str, Any]] = machine.get("neuri_jobs", [])
+        s_jobs: list[dict[str, Any]] = machine.get("slurm_jobs", [])
+        if not n_jobs and not s_jobs:
+            parts.extend([("  Jobs  ", "$muted"), ("idle\n", "$foreground")])
+        for nj in n_jobs:
+            st: str = str(nj.get("state", "RUNNING"))
+            job_style: str = "$success" if st == "RUNNING" else "$warning"
+            parts.extend([
+                ("  neuri ", "$muted"),
+                (f"{nj.get('job_id')} ", "$foreground"),
+                (f"{st}\n", job_style),
+            ])
+        for sj in s_jobs:
+            st = str(sj.get("state", "R"))
+            job_style = "$success" if st in ("R", "RUNNING") else "$warning"
+            parts.extend([
+                ("  slurm ", "$muted"),
+                (f"#{sj.get('slurm_job_id')} ", "$foreground"),
+                (f"{st}\n", job_style),
+            ])
+        return parts
+
+    def update_machines(self, machines_data: list[dict[str, Any]]) -> None:
         """Render formatted machine status and active jobs into sidebar.
 
         Parameters
         ------------
         machines_data: list[dict[str, Any]]
             List of machine health and job dictionaries.
-        theme: NeuriTheme | None
-            Optional explicit theme model. Defaults to None.
 
         Returns
         --------
@@ -242,101 +708,23 @@ class ComputeSidebar(VerticalScroll):
                 Updates text inside sidebar content widget.
         """
         self._last_machines_data = machines_data
-        active_theme: NeuriTheme = (
-            theme if theme is not None else self._get_theme()
-        )
         if not machines_data:
             self._content.update(
-                Text(
-                    "No attached machines.\nUse /remote bootstrap <host>",
-                    style=f"{active_theme.muted}",
+                Content.assemble(
+                    ("No attached machines.\n", "$muted"),
+                    ("/remote bootstrap <host>", "$primary"),
                 )
             )
             return
 
-        txt: Text = Text()
+        parts: list[str | Content | tuple[str, str]] = []
         for idx, machine in enumerate(machines_data):
             if idx > 0:
-                txt.append(
-                    "\n" + "─" * 26 + "\n", style=f"{active_theme.border}"
-                )
-            host_name: str = str(machine.get("host", "unknown"))
-            online: bool = bool(machine.get("online", False))
-            if online:
-                txt.append("● ", style=f"bold {active_theme.success}")
-                txt.append(
-                    f"{host_name}\n", style=f"bold {active_theme.foreground}"
-                )
-                cores: int = int(machine.get("cpu_count", 1))
-                load_arr: list[float] = machine.get("load_avg", [0.0, 0.0, 0.0])
-                load_val: float = float(load_arr[0]) if load_arr else 0.0
-                load_s: str = f"{load_val:.2f}" if load_arr else "-"
-                meter: str = self._render_meter(
-                    load_val, max(1.0, float(cores)), width=8
-                )
-                txt.append(
-                    f"  Load: [{meter}] {load_s}\n",
-                    style=f"{active_theme.accent}",
-                )
-                txt.append(
-                    f"  CPUs: {cores} cores\n",
-                    style=f"{active_theme.muted}",
-                )
+                parts.append((Glyphs.RULE * self.RULE_WIDTH + "\n", "$border"))
+            parts.extend(self._machine_block(machine))
 
-                n_jobs: list[dict[str, Any]] = machine.get("neuri_jobs", [])
-                s_jobs: list[dict[str, Any]] = machine.get("slurm_jobs", [])
-                total_jobs: int = len(n_jobs) + len(s_jobs)
-                if total_jobs == 0:
-                    txt.append("  Jobs: Idle\n", style=f"{active_theme.muted}")
-                else:
-                    for nj in n_jobs:
-                        st: str = str(nj.get("state", "RUNNING"))
-                        style_tag: str = (
-                            active_theme.success
-                            if st == "RUNNING"
-                            else active_theme.warning
-                        )
-                        txt.append(
-                            f"  ▶ [Neuri] {nj.get('job_id')}: {st}\n",
-                            style=style_tag,
-                        )
-                    for sj in s_jobs:
-                        st = str(sj.get("state", "R"))
-                        style_tag = (
-                            active_theme.success
-                            if st in ("R", "RUNNING")
-                            else active_theme.warning
-                        )
-                        txt.append(
-                            f"  ▶ [Slurm] #{sj.get('slurm_job_id')}: {st}\n",
-                            style=style_tag,
-                        )
-            else:
-                txt.append("○ ", style=f"bold {active_theme.error}")
-                txt.append(
-                    f"{host_name} (Offline)\n", style=f"{active_theme.error}"
-                )
-
-        try:
-            self._content.update(txt)
-        except Exception:
-            pass
-
-    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
-        """Re-render content with the newly activated theme palette.
-
-        Parameters
-        ------------
-        theme: NeuriTheme | None
-            Optional updated theme model. Defaults to None.
-
-        Returns
-        --------
-            None: NoneType object
-                Re-renders sidebar content.
-        """
-        if self._last_machines_data:
-            self.update_machines(self._last_machines_data, theme=theme)
+        with contextlib.suppress(Exception):
+            self._content.update(Content.assemble(*parts).rstrip())
 
 
 class MachineSelectorBar(Static):
@@ -368,26 +756,6 @@ class MachineSelectorBar(Static):
         self._machines: list[str] = ["localhost"]
         self._current_index: int = 0
 
-    def _get_theme(self) -> NeuriTheme:
-        """Resolve active theme model from parent application context.
-
-        Parameters
-        ------------
-        None
-
-        Returns
-        --------
-            NeuriTheme: NeuriTheme instance
-                Current active theme object.
-        """
-        try:
-            chat_app: Any = self.app
-            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
-                return chat_app.active_neuri_theme
-        except Exception:
-            pass
-        return NeuriThemeManager().get_high_contrast_theme()
-
     def update_selection(
         self, machines: list[str], current_index: int
     ) -> None:
@@ -403,7 +771,7 @@ class MachineSelectorBar(Static):
         Returns
         --------
             None: NoneType object
-                Renders updated rich text with highlighted machine pill.
+                Renders updated content with highlighted machine pill.
         """
         self._machines = machines if machines else ["localhost"]
         self._current_index = max(
@@ -411,64 +779,37 @@ class MachineSelectorBar(Static):
         )
         self._render_bar()
 
-    def _render_bar(self, theme: NeuriTheme | None = None) -> None:
-        """Render selector bar using active theme palette.
+    def _render_bar(self) -> None:
+        """Render selector bar using semantic theme tokens.
 
         Parameters
         ------------
-        theme: NeuriTheme | None
-            Optional explicit theme model. Defaults to None.
+        None
 
         Returns
         --------
             None: NoneType object
                 Updates widget display.
         """
-        active_theme: NeuriTheme = (
-            theme if theme is not None else self._get_theme()
-        )
-        txt: Text = Text()
-        txt.append("SHELL ", style=f"bold {active_theme.success}")
-        txt.append("│ Target: ", style=f"bold {active_theme.accent}")
-        selected_name: str = self._machines[self._current_index]
-        txt.append(f"◀ {selected_name} ▶ ", style=f"bold {active_theme.warning}")
-        txt.append("│ Machines: ", style=f"{active_theme.muted}")
-
+        parts: list[str | Content | tuple[str, str]] = [
+            (" SHELL ", "bold $background on $success"),
+            ("  target ", "$muted"),
+        ]
         for idx, machine_name in enumerate(self._machines):
             if idx == self._current_index:
-                txt.append(
-                    f" [● {machine_name}] ",
-                    style=(
-                        f"bold {active_theme.selection_fg} "
-                        f"on {active_theme.selection_bg}"
-                    ),
+                parts.append(
+                    (
+                        f" {Glyphs.DOT_ON} {machine_name} ",
+                        "bold $selection-fg on $selection-bg",
+                    )
                 )
             else:
-                txt.append(f" ○ {machine_name} ", style=f"{active_theme.muted}")
-
-        txt.append(
-            " │ (←/→ or ↑/↓: select │ Ctrl+S: exit)",
-            style=f"italic {active_theme.accent}",
-        )
-        try:
-            self.update(txt)
-        except Exception:
-            pass
-
-    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
-        """Re-render selector bar with newly activated theme palette.
-
-        Parameters
-        ------------
-        theme: NeuriTheme | None
-            Optional updated theme model. Defaults to None.
-
-        Returns
-        --------
-            None: NoneType object
-                Re-renders selector bar display.
-        """
-        self._render_bar(theme=theme)
+                parts.append(
+                    (f" {Glyphs.DOT_OFF} {machine_name} ", "$muted")
+                )
+        parts.append(("   tab/←→ switch host  ·  ^s exit", "$muted"))
+        with contextlib.suppress(Exception):
+            self.update(Content.assemble(*parts))
 
 
 class SlashAutocompletePopup(Static):
@@ -483,6 +824,8 @@ class SlashAutocompletePopup(Static):
         SlashAutocompletePopup: SlashAutocompletePopup instance
             Constructed autocomplete popup widget.
     """
+
+    MAX_VISIBLE: ClassVar[int] = 6
 
     SLASH_COMMANDS: list[tuple[str, str]] = [
         ("/plan", "Preview DAG decomposition without auto-executing"),
@@ -521,26 +864,6 @@ class SlashAutocompletePopup(Static):
         super().__init__(id="autocomplete-popup", classes="hidden")
         self._matches: list[tuple[str, str]] = []
         self._selected_index: int = 0
-
-    def _get_theme(self) -> NeuriTheme:
-        """Resolve active theme model from parent application context.
-
-        Parameters
-        ------------
-        None
-
-        Returns
-        --------
-            NeuriTheme: NeuriTheme instance
-                Current active theme object.
-        """
-        try:
-            chat_app: Any = self.app
-            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
-                return chat_app.active_neuri_theme
-        except Exception:
-            pass
-        return NeuriThemeManager().get_dark_theme()
 
     def show_matches(
         self, matches: list[tuple[str, str]], selected_index: int = 0
@@ -632,6 +955,22 @@ class SlashAutocompletePopup(Static):
             ) % len(self._matches)
             self._render_popup()
 
+    def _visible_window(self) -> tuple[int, int]:
+        """Compute the slice of matches visible around the selection.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            tuple[int, int]: tuple object
+                (start, end) indices into the match list.
+        """
+        start: int = max(0, self._selected_index - self.MAX_VISIBLE + 1)
+        end: int = min(len(self._matches), start + self.MAX_VISIBLE)
+        return (start, end)
+
     def _render_popup(self) -> None:
         """Render popup content with active selection highlight.
 
@@ -644,47 +983,21 @@ class SlashAutocompletePopup(Static):
             None: NoneType object
                 Updates widget display.
         """
-        theme: NeuriTheme = self._get_theme()
-        txt: Text = Text()
-        txt.append(
-            "Suggestions (Tab/Enter: select │ ↑/↓: navigate)\n",
-            style=f"italic {theme.muted}",
-        )
-        for idx, (cmd, desc) in enumerate(self._matches[:5]):
+        parts: list[str | Content | tuple[str, str]] = []
+        start, end = self._visible_window()
+        for idx in range(start, end):
+            cmd, desc = self._matches[idx]
             if idx == self._selected_index:
-                txt.append(" ▶ ", style=f"bold {theme.accent}")
-                txt.append(
-                    f"{cmd:<12}",
-                    style=(
-                        f"bold {theme.selection_fg} on {theme.selection_bg}"
-                    ),
-                )
-                txt.append(f"  {desc}\n", style=f"bold {theme.foreground}")
+                row_style: str = "$selection-fg on $selection-bg"
+                parts.append((f" {cmd:<11}", f"bold {row_style}"))
+                parts.append((f" {desc} ", row_style))
             else:
-                txt.append("   ", style=f"{theme.muted}")
-                txt.append(f"{cmd:<12}", style=f"bold {theme.primary}")
-                txt.append(f"  {desc}\n", style=f"{theme.muted}")
-
-        try:
-            self.update(txt)
-        except Exception:
-            pass
-
-    def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
-        """Re-render popup with newly activated theme palette.
-
-        Parameters
-        ------------
-        theme: NeuriTheme | None
-            Optional updated theme model. Defaults to None.
-
-        Returns
-        --------
-            None: NoneType object
-                Re-renders popup display.
-        """
-        if self._matches:
-            self._render_popup()
+                parts.append((f" {cmd:<11}", "bold $primary"))
+                parts.append((f" {desc} ", "$muted"))
+            parts.append("\n")
+        parts.append(("tab/enter select  ·  ↑↓ navigate  ·  esc close", "$muted"))
+        with contextlib.suppress(Exception):
+            self.update(Content.assemble(*parts))
 
 
 class PromptInput(Input):
@@ -886,6 +1199,9 @@ class TelemetryBar(Static):
             Constructed telemetry bar widget.
     """
 
+    TOKEN_BUDGET: ClassVar[float] = 64000.0
+    METER_WIDTH: ClassVar[int] = 6
+
     tokens_count: reactive[int] = reactive(0)
     cost_usd: reactive[float] = reactive(0.0)
     status_text: reactive[str] = reactive("Ready")
@@ -903,14 +1219,14 @@ class TelemetryBar(Static):
         harness_id: str
             Harness identifier string. Defaults to 'agy'.
         theme: NeuriTheme | None
-            Optional theme override model. Defaults to None.
+            Optional theme model override. Defaults to None.
 
         Returns
         --------
             None: NoneType object
                 Initializes widget attributes.
         """
-        super().__init__()
+        super().__init__(id="telemetry-bar")
         self._harness_id: str = harness_id
         self._custom_theme: NeuriTheme | None = theme
 
@@ -928,103 +1244,11 @@ class TelemetryBar(Static):
                 Updates widget theme state.
         """
         self._custom_theme = theme
-        try:
+        with contextlib.suppress(Exception):
             self.refresh()
-        except Exception:
-            pass
-
-    def _get_theme(self) -> NeuriTheme:
-        """Resolve active theme model from parent application context.
-
-        Parameters
-        ------------
-        None
-
-        Returns
-        --------
-            NeuriTheme: NeuriTheme instance
-                Current active theme object.
-        """
-        if self._custom_theme is not None:
-            return self._custom_theme
-        try:
-            chat_app: Any = self.app
-            if chat_app is not None and hasattr(chat_app, "active_neuri_theme"):
-                return chat_app.active_neuri_theme
-        except Exception:
-            pass
-        fallback: NeuriTheme = NeuriThemeManager().get_high_contrast_theme()
-        return fallback
-
-    @staticmethod
-    def _render_meter(
-        val: float, max_val: float = 100.0, width: int = 6
-    ) -> str:
-        """Render a mini Unicode progress meter for telemetry bars.
-
-        Parameters
-        ------------
-        val: float
-            Current numeric value.
-        max_val: float
-            Maximum capacity value. Defaults to 100.0.
-        width: int
-            Cell width of the bar. Defaults to 6.
-
-        Returns
-        --------
-            str: string object
-                Unicode progress bar string like '██░░░░'.
-        """
-        ratio: float = (
-            min(1.0, max(0.0, val / max_val)) if max_val > 0.0 else 0.0
-        )
-        filled: int = int(round(ratio * width))
-        bar: str = "█" * filled + "░" * (width - filled)
-        return bar
-
-    def render(self) -> Text:
-        """Render formatted rich text with capacity meters for telemetry footer.
-
-        Parameters
-        ------------
-        None
-
-        Returns
-        --------
-            Text: Text object
-                Rich text display styled by active theme.
-        """
-        theme: NeuriTheme = self._get_theme()
-        label_style: str = f"bold {theme.accent}"
-        txt: Text = Text()
-        tok_meter: str = self._render_meter(
-            float(self.tokens_count), 64000.0, width=6
-        )
-        cost_meter: str = self._render_meter(
-            float(self.cost_usd), 10.0, width=6
-        )
-
-        txt.append(" Harness: ", style=label_style)
-        txt.append(f"{self._harness_id} ", style=f"{theme.success}")
-        txt.append("│ Machines: ", style=label_style)
-        txt.append(f"{self.machines_summary} ", style=f"{theme.success}")
-        txt.append("│ Tokens: ", style=label_style)
-        txt.append(
-            f"[{tok_meter}] {self.tokens_count:,} ",
-            style=f"{theme.tokens}",
-        )
-        txt.append("│ Cost: ", style=label_style)
-        txt.append(
-            f"[{cost_meter}] ${self.cost_usd:.2f} ",
-            style=f"{theme.cost}",
-        )
-        txt.append("│ Status: ", style=label_style)
-        txt.append(f"{self.status_text}", style=f"bold {theme.success}")
-        return txt
 
     def refresh_theme(self, theme: NeuriTheme | None = None) -> None:
-        """Re-render telemetry bar with newly activated theme palette.
+        """Re-render telemetry bar when theme changes.
 
         Parameters
         ------------
@@ -1036,10 +1260,73 @@ class TelemetryBar(Static):
             None: NoneType object
                 Refreshes telemetry widget display.
         """
-        try:
+        if theme is not None:
+            self._custom_theme = theme
+        with contextlib.suppress(Exception):
             self.refresh()
-        except Exception:
-            pass
+
+    @staticmethod
+    def status_style(status: str) -> str:
+        """Map a status message to a semantic pill style.
+
+        Parameters
+        ------------
+        status: str
+            Current status text.
+
+        Returns
+        --------
+            str: string object
+                Theme style for the status pill.
+        """
+        lowered: str = status.lower()
+        pill_bg: str = "$warning"
+        if lowered == "ready":
+            pill_bg = "$success"
+        elif "error" in lowered or "circuit" in lowered:
+            pill_bg = "$error"
+        elif lowered.startswith("shell"):
+            pill_bg = "$secondary"
+        style: str = f"bold $background on {pill_bg}"
+        return style
+
+    def render(self) -> Content:
+        """Render the telemetry line using semantic theme tokens.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Content: Content object
+                Telemetry content styled by the active theme.
+        """
+        label: str = "bold $accent"
+        sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
+        telemetry: Content = Content.assemble(
+            ("Harness: ", label),
+            (self._harness_id, "$foreground"),
+            sep,
+            ("Machines: ", label),
+            (self.machines_summary, "$foreground"),
+            sep,
+            ("Tokens: ", label),
+            render_meter(
+                float(self.tokens_count),
+                self.TOKEN_BUDGET,
+                self.METER_WIDTH,
+                "$tokens",
+            ),
+            (f" {self.tokens_count:,}", "$tokens"),
+            sep,
+            ("Cost: ", label),
+            (f"${self.cost_usd:.2f}", "$cost"),
+            sep,
+            ("Status: ", label),
+            (f" {self.status_text} ", self.status_style(self.status_text)),
+        )
+        return telemetry
 
 
 class NeuriChatApp(App[None]):
@@ -1064,149 +1351,197 @@ class NeuriChatApp(App[None]):
     TITLE = "Neuri"
     SUB_TITLE = "The friendly neuroscientist"
 
+    DEFAULT_PLACEHOLDER: ClassVar[str] = (
+        "Type a research prompt or /command (/init, /skills, "
+        "/machines, /status, /help, /exit)..."
+    )
+
     CSS = """
     Screen {
         background: $background;
         color: $foreground;
     }
-    #workspace-banner {
+
+    /* ---- Header ---------------------------------------------------- */
+    #header-bar {
         dock: top;
         height: 1;
-        background: $surface;
-        color: $foreground;
+        background: $background;
         padding: 0 1;
-        border-bottom: solid $border;
     }
+    #workspace-banner {
+        width: 1fr;
+        height: 1;
+        color: $foreground;
+    }
+    #header-help {
+        width: auto;
+        height: 1;
+    }
+
+    /* ---- Main panels ----------------------------------------------- */
     #main-horizontal {
         height: 1fr;
     }
     #chat-scroll {
         width: 1fr;
         height: 100%;
-        padding: 1 2;
+        padding: 0 1;
+        background: $background;
+        border: round $border;
+        border-title-color: $primary;
+        border-title-style: bold;
+        border-title-align: left;
+        scrollbar-size-vertical: 1;
+    }
+    #chat-scroll:focus {
+        border: round $primary;
     }
     #compute-sidebar {
         width: 34;
         height: 100%;
-        background: $panel;
-        border-left: solid $border;
+        background: $background;
+        border: round $border;
+        border-title-color: $foreground;
+        border-title-style: bold;
+        border-title-align: left;
+        border-subtitle-color: $muted;
         padding: 0 1;
+        scrollbar-size-vertical: 1;
     }
     #compute-sidebar.hidden {
         display: none;
     }
-    #compute-sidebar-title {
-        color: $primary;
-        text-style: bold;
-        background: $surface;
-        padding: 0 1;
-        margin-bottom: 1;
-        width: 100%;
-    }
     #compute-sidebar-content {
         color: $foreground;
     }
+
+    /* ---- Input stack ----------------------------------------------- */
     #input-container {
         dock: bottom;
         height: auto;
-        padding: 0 1 1 1;
+        padding: 0;
         background: $background;
     }
-    #autocomplete-popup {
-        background: $panel;
-        color: $foreground;
-        border: solid $accent;
+    #telemetry-bar {
+        height: 1;
         padding: 0 1;
-        margin-bottom: 0;
-        max-height: 8;
+        background: $background;
+        color: $foreground;
+    }
+    #autocomplete-popup {
+        background: $surface;
+        color: $foreground;
+        border: round $primary;
+        padding: 0 1;
+        max-height: 9;
     }
     #autocomplete-popup.hidden {
         display: none;
     }
     #machine-selector-bar {
         height: 1;
-        margin-bottom: 0;
         padding: 0 1;
-        background: $surface;
+        background: $background;
         color: $foreground;
     }
     #machine-selector-bar.hidden {
         display: none;
     }
-    Input {
-        border: tall $border;
-        background: $surface;
-        color: $foreground;
-    }
-    Input:focus {
-        border: tall $accent;
-    }
-    Input.shell-mode {
-        border: tall $success;
-    }
-    Input.shell-mode:focus {
-        border: tall $success;
-    }
-    #telemetry-bar {
-        dock: bottom;
-        height: 1;
-        background: $surface;
+    #prompt-input {
+        border: round $border;
+        background: $background;
         color: $foreground;
         padding: 0 1;
+    }
+    #prompt-input:focus {
+        border: round $primary;
+    }
+    #prompt-input.shell-mode,
+    #prompt-input.shell-mode:focus {
+        border: round $success;
+    }
+    #prompt-input > .input--placeholder {
+        color: $muted;
+    }
+    Footer {
+        background: $background;
+    }
+
+    /* ---- Chat cards ------------------------------------------------ */
+    .welcome-card {
+        height: auto;
+        padding: 1 2;
+        margin-bottom: 1;
+        border-bottom: solid $border;
     }
     .message-card {
+        height: auto;
         padding: 0 1;
         margin-bottom: 1;
-        background: $surface;
+        background: $background;
     }
     .message-card-user {
-        border-left: thick $primary;
+        border-left: outer $primary;
     }
     .message-card-assistant {
-        border-left: thick $secondary;
+        border-left: outer $secondary;
     }
     .message-card-shell {
-        border-left: thick $success;
+        border-left: outer $success;
     }
-    .user-header {
-        color: $primary;
-        text-style: bold;
-        margin-top: 1;
+    .card-header {
+        height: 1;
     }
-    .user-body {
-        margin-left: 2;
-        margin-bottom: 1;
+    .card-body {
         color: $foreground;
+        background: $background;
+        padding: 0;
+        margin: 0;
     }
-    .assistant-header {
-        color: $secondary;
-        text-style: bold;
-        margin-top: 1;
+    .message-card Markdown {
+        padding: 0;
+        margin: 0;
+        background: $background;
     }
-    .assistant-body {
-        margin-left: 2;
-        margin-bottom: 1;
+    .message-card Collapsible {
+        background: $background;
+        border-top: none;
+        padding: 0;
     }
-    .shell-header {
-        color: $success;
-        text-style: bold;
-        margin-top: 1;
-    }
-    .shell-body {
-        margin-left: 2;
-        margin-bottom: 1;
-        color: $foreground;
+    .message-card CollapsibleTitle {
+        color: $muted;
+        padding: 0;
     }
     .thinking-text {
-        color: $foreground;
+        color: $muted;
         text-style: italic;
-        padding: 1;
-        background: $surface;
+        padding: 0 1;
+        border-left: outer $border;
+    }
+    .shell-command {
+        height: auto;
+        margin-top: 1;
+    }
+    .shell-result {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .shell-stdout {
+        color: $foreground;
+    }
+    .shell-stderr {
+        color: $error;
+    }
+    .shell-footer {
+        height: 1;
     }
     """
 
-    BINDINGS: list[Binding] = [
-        Binding("ctrl+c", "quit", "Quit", show=True),
+    BINDINGS: ClassVar[
+        list[Binding | tuple[str, str] | tuple[str, str, str]]
+    ] = [
+        Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("ctrl+q", "quit", "Quit", show=False),
         Binding("ctrl+l", "clear_screen", "Clear", show=True),
         Binding("ctrl+s", "toggle_shell_mode", "Shell Mode", show=True),
@@ -1233,16 +1568,22 @@ class NeuriChatApp(App[None]):
             None: NoneType object
                 Initializes application state.
         """
-        super().__init__()
         self._workspace_dir: Path = (
             workspace_dir if workspace_dir is not None else Path.cwd()
         )
+        self._theme_manager: NeuriThemeManager = NeuriThemeManager(
+            workspace_dir=self._workspace_dir
+        )
+        super().__init__()
         self._engine: NeuriSessionEngine = (
             session_engine
             if session_engine is not None
             else NeuriSessionEngine(workspace_dir=self._workspace_dir)
         )
-        self._telemetry_bar: TelemetryBar = TelemetryBar()
+        self._harness_id: str = "agy"
+        self._telemetry_bar: TelemetryBar = TelemetryBar(
+            harness_id=self._harness_id
+        )
         self._compute_sidebar: ComputeSidebar = ComputeSidebar()
         self._is_shell_mode: bool = False
         self._available_machines: list[str] = ["localhost"]
@@ -1254,11 +1595,24 @@ class NeuriChatApp(App[None]):
         self._autocomplete_popup: SlashAutocompletePopup = (
             SlashAutocompletePopup()
         )
-        self._theme_manager: NeuriThemeManager = NeuriThemeManager(
-            workspace_dir=self._workspace_dir
-        )
         self._history_manager: PromptHistoryManager = PromptHistoryManager()
         self._engine.subscribe(self._handle_session_event)
+
+    def get_theme_variable_defaults(self) -> dict[str, str]:
+        """Provide default custom theme variable tokens for Textual CSS.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            dict[str, str]: dict object
+                Default mapping of custom Neuri CSS variables.
+        """
+        default_thm: NeuriTheme = self._theme_manager.get_default_theme()
+        defaults: dict[str, str] = default_thm.widget_variables()
+        return defaults
 
     @property
     def history_manager(self) -> PromptHistoryManager:
@@ -1277,7 +1631,7 @@ class NeuriChatApp(App[None]):
         return hm
 
     @property
-    def is_mounted(self) -> bool:
+    def is_mounted(self) -> bool:  # type: ignore[override]
         """Check if application is running and mounted.
 
         Parameters
@@ -1291,6 +1645,39 @@ class NeuriChatApp(App[None]):
         """
         return bool(self._is_mounted)
 
+    def _banner_content(self) -> Content:
+        """Build the one-line header banner content.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Content: Content object
+                Brand, workspace, init state, and harness summary.
+        """
+        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
+        state_part: tuple[str, str] = (
+            (f"{Glyphs.DOT_ON} initialized", "$success")
+            if is_init
+            else (f"{Glyphs.DOT_OFF} uninitialized (/init)", "$warning")
+        )
+        sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
+        banner: Content = Content.assemble(
+            ("neuri", "bold $foreground"),
+            (f" {Glyphs.PROMPT} ", "$muted"),
+            ("Workspace: ", "$muted"),
+            (self._workspace_dir.name or str(self._workspace_dir),
+             "bold $primary"),
+            sep,
+            state_part,
+            sep,
+            ("harness ", "$muted"),
+            (self._harness_id, "$accent"),
+        )
+        return banner
+
     def compose(self) -> ComposeResult:
         """Compose layout widgets for the interactive chat interface.
 
@@ -1301,35 +1688,31 @@ class NeuriChatApp(App[None]):
         Returns
         --------
             ComposeResult: ComposeResult generator
-                Yields header banner, scroll area, input, and telemetry bar.
+                Yields header, chat panel, sidebar, input stack, and footer.
         """
-        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
-        init_badge: str = (
-            "● Initialized" if is_init else "○ Type /init to setup"
-        )
-        banner_text: str = (
-            f" ◈ NEURI  │  Workspace: {self._workspace_dir.name}  │  "
-            f"{init_badge}  │  🔒 PHI: Active  │  ⚡ Harness: agy  │  🌐 :8421"
-        )
-        yield Static(banner_text, id="workspace-banner")
+        with Horizontal(id="header-bar"):
+            yield Static(self._banner_content(), id="workspace-banner")
+            yield Static(
+                Content.assemble(("? ", "bold $primary"), ("/help", "$muted")),
+                id="header-help",
+            )
 
         with Horizontal(id="main-horizontal"):
-            yield VerticalScroll(id="chat-scroll")
+            chat_scroll: VerticalScroll = VerticalScroll(id="chat-scroll")
+            chat_scroll.border_title = ">> Neuri"
+            yield chat_scroll
             yield self._compute_sidebar
 
         with Container(id="input-container"):
+            yield self._telemetry_bar
             yield self._autocomplete_popup
             yield self._machine_selector_bar
             yield PromptInput(
-                placeholder=(
-                    "Type a research prompt or /command (/init, /skills, "
-                    "/machines, /status, /help, /exit)..."
-                ),
+                placeholder=self.DEFAULT_PLACEHOLDER,
                 id="prompt-input",
                 select_on_focus=False,
             )
 
-        yield self._telemetry_bar
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -1355,38 +1738,10 @@ class NeuriChatApp(App[None]):
         active_theme_name: str = self._theme_manager.get_active_theme_name()
         self.apply_theme(active_theme_name)
 
-        # Mount initial diagnostic welcome card
-        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
-        state_label: str = "Initialized" if is_init else "Uninitialized"
-        welcome_md: str = (
-            f"### ◈ NEURI — Neuroscience Meta-Harness\n\n"
-            f"- **Workspace:** `{self._workspace_dir}`  │  "
-            f"**State:** `{state_label}`  │  "
-            f"**Theme:** `{active_theme_name}`\n\n"
-            f"| Modality | Quick Action | Command |\n"
-            f"| :--- | :--- | :--- |\n"
-            f"| **Natural Language** | Decompose & execute research DAG | "
-            f"*Enter any instruction* |\n"
-            f"| **DAG Preview** | Preview execution plan without running | "
-            f"`/plan <instruction>` |\n"
-            f"| **3D Visualization** | Inspect NIfTI / GIfTI in WebGL2 bridge | "
-            f"`/view [path]` |\n"
-            f"| **Status & Jobs** | Inspect nodes, artifacts, and batch queues | "
-            f"`/status` or `/jobs` |\n"
-            f"| **Fleet Shell** | Run bash command locally or on cluster | "
-            f"`!<cmd>` or `Ctrl+S` |\n"
-            f"| **Command Help** | List all interactive slash commands | "
-            f"`/help` |\n"
-        )
-        welcome_turn: ChatTurn = ChatTurn(
-            turn_id="welcome_turn",
-            role=ChatRole.ASSISTANT,
-            content=welcome_md,
-        )
         scroll_area: VerticalScroll = self.query_one(
             "#chat-scroll", VerticalScroll
         )
-        await scroll_area.mount(MessageCard(welcome_turn))
+        await scroll_area.mount(WelcomeCard(self._workspace_dir))
 
         # Initial machine query and periodic monitor loop
         self.set_interval(15.0, self.refresh_compute_machines)
@@ -1442,20 +1797,24 @@ class NeuriChatApp(App[None]):
             )
             if thm is not None:
                 return thm
-        return self._theme_manager.get_high_contrast_theme()
+        return self._theme_manager.get_default_theme()
 
     def apply_theme(self, theme_name: str) -> None:
         """Apply a color theme by name to the Textual user interface.
 
+        All widgets style themselves through theme tokens, so switching the
+        Textual theme is enough to restyle everything; only the welcome card
+        re-renders because it displays the theme name.
+
         Parameters
         ------------
         theme_name: str
-            Theme name or alias (e.g. 'high_contrast', 'dark', 'monokai', 'nord').
+            Theme name or alias (e.g. 'cyberpunk', 'dark', 'monokai', 'nord').
 
         Returns
         --------
             None: NoneType object
-                Updates active application theme and re-styles widgets.
+                Updates active application theme.
         """
         clean_name: str = theme_name.strip().lower()
         if clean_name not in self.available_themes:
@@ -1464,20 +1823,23 @@ class NeuriChatApp(App[None]):
                 self.register_theme(thm.to_textual_theme())
         if clean_name in self.available_themes:
             self.theme = clean_name
+        self._refresh_welcome_cards()
 
-        active_thm: NeuriTheme = self.active_neuri_theme
-        if (
-            hasattr(self, "_compute_sidebar")
-            and self._compute_sidebar is not None
-        ):
-            self._compute_sidebar.refresh_theme(active_thm)
-        if (
-            hasattr(self, "_machine_selector_bar")
-            and self._machine_selector_bar is not None
-        ):
-            self._machine_selector_bar.refresh_theme(active_thm)
-        if hasattr(self, "_telemetry_bar") and self._telemetry_bar is not None:
-            self._telemetry_bar.refresh_theme(active_thm)
+    def _refresh_welcome_cards(self) -> None:
+        """Re-render any mounted welcome cards (theme / init state changed).
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Refreshes welcome card widgets.
+        """
+        with contextlib.suppress(Exception):
+            for card in self.query(WelcomeCard):
+                card.refresh()
 
     def action_toggle_sidebar(self) -> None:
         """Toggle visibility of the compute machines and jobs sidebar.
@@ -1631,10 +1993,7 @@ class NeuriChatApp(App[None]):
         else:
             selector_bar.add_class("hidden")
             input_widget.remove_class("shell-mode")
-            input_widget.placeholder = (
-                "Type a research prompt or /command (/init, /skills, "
-                "/machines, /status, /help, /exit)..."
-            )
+            input_widget.placeholder = self.DEFAULT_PLACEHOLDER
             self._telemetry_bar.status_text = "Ready"
 
     async def refresh_compute_machines(self) -> None:
@@ -1710,6 +2069,42 @@ class NeuriChatApp(App[None]):
                 event.prevent_default()
                 event.stop()
 
+    async def _run_shell_command(
+        self, cmd_val: str, scroll_area: VerticalScroll
+    ) -> None:
+        """Execute a shell command and mount its command and result cards.
+
+        Parameters
+        ------------
+        cmd_val: str
+            Shell command text to execute.
+        scroll_area: VerticalScroll
+            Chat canvas to mount cards into.
+
+        Returns
+        --------
+            None: NoneType object
+                Mounts shell cards into the chat canvas.
+        """
+        target_host: str = self.selected_machine
+        self._telemetry_bar.status_text = f"Running on {target_host}..."
+        await scroll_area.mount(ShellCommandCard(target_host, cmd_val))
+        scroll_area.scroll_end(animate=False)
+
+        try:
+            res: ShellExecutionResult = await self._shell_executor.execute(
+                command=cmd_val, host=target_host
+            )
+            await scroll_area.mount(ShellResultCard(res))
+        except Exception as exc:
+            err_sh_turn: ChatTurn = ChatTurn(
+                turn_id=f"err_{int(datetime.now(UTC).timestamp())}",
+                role=ChatRole.ASSISTANT,
+                content=f"**Shell Execution Error:** `{exc}`",
+            )
+            await scroll_area.mount(MessageCard(err_sh_turn))
+        scroll_area.scroll_end(animate=False)
+
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle prompt submission from the bottom input box.
 
@@ -1735,7 +2130,6 @@ class NeuriChatApp(App[None]):
         input_widget.disabled = True
         self._telemetry_bar.status_text = "Processing..."
 
-        # Mount user message card
         scroll_area: VerticalScroll = self.query_one(
             "#chat-scroll", VerticalScroll
         )
@@ -1745,42 +2139,13 @@ class NeuriChatApp(App[None]):
         )
         if self._is_shell_mode or is_quick_shell:
             cmd_val: str = val[1:].strip() if is_quick_shell else val
-            target_host: str = self.selected_machine
-            self._telemetry_bar.status_text = f"Running on {target_host}..."
-
-            user_sh_turn: ChatTurn = ChatTurn(
-                turn_id=f"u_sh_{int(datetime.now(timezone.utc).timestamp())}",
-                role=ChatRole.USER,
-                content=f"**[{target_host}]** `$ {cmd_val}`",
-            )
-            await scroll_area.mount(MessageCard(user_sh_turn))
-            scroll_area.scroll_end(animate=False)
-
             try:
-                res: ShellExecutionResult = await self._shell_executor.execute(
-                    command=cmd_val, host=target_host
-                )
-                card_md: str = self._shell_executor.format_markdown_card(res)
-                assistant_sh_turn: ChatTurn = ChatTurn(
-                    turn_id=f"a_sh_{int(datetime.now(timezone.utc).timestamp())}",
-                    role=ChatRole.ASSISTANT,
-                    content=card_md,
-                )
-                await scroll_area.mount(MessageCard(assistant_sh_turn))
-                scroll_area.scroll_end(animate=False)
-            except Exception as exc:
-                err_sh_turn: ChatTurn = ChatTurn(
-                    turn_id=f"err_{int(datetime.now(timezone.utc).timestamp())}",
-                    role=ChatRole.ASSISTANT,
-                    content=f"**Shell Execution Error:** `{exc}`",
-                )
-                await scroll_area.mount(MessageCard(err_sh_turn))
-                scroll_area.scroll_end(animate=False)
+                await self._run_shell_command(cmd_val, scroll_area)
             finally:
                 input_widget.disabled = False
                 input_widget.focus()
                 mode_lbl: str = (
-                    f"Shell [{target_host}]"
+                    f"Shell [{self.selected_machine}]"
                     if self._is_shell_mode
                     else "Ready"
                 )
@@ -1788,7 +2153,7 @@ class NeuriChatApp(App[None]):
             return
 
         user_turn: ChatTurn = ChatTurn(
-            turn_id=f"u_{int(datetime.now(timezone.utc).timestamp())}",
+            turn_id=f"u_{int(datetime.now(UTC).timestamp())}",
             role=ChatRole.USER,
             content=val,
         )
@@ -1801,7 +2166,7 @@ class NeuriChatApp(App[None]):
             scroll_area.scroll_end(animate=False)
         except Exception as exc:
             err_turn: ChatTurn = ChatTurn(
-                turn_id=f"err_{int(datetime.now(timezone.utc).timestamp())}",
+                turn_id=f"err_{int(datetime.now(UTC).timestamp())}",
                 role=ChatRole.ASSISTANT,
                 content=f"**Error executing turn:** `{exc}`",
             )
@@ -1835,15 +2200,15 @@ class NeuriChatApp(App[None]):
                 data_dict: dict[str, Any] = ev.payload.get("data") or {}
                 thm_name: str = str(
                     data_dict.get("theme_name")
-                    or ev.payload.get("theme_name", "high_contrast")
+                    or ev.payload.get(
+                        "theme_name", NeuriThemeManager.DEFAULT_THEME_NAME
+                    )
                 )
                 self.apply_theme(thm_name)
             elif action == "reload_config":
                 banner: Static = self.query_one("#workspace-banner", Static)
-                banner.update(
-                    f" Workspace: {self._workspace_dir.name} "
-                    f"({self._workspace_dir})  │  State: [Initialized]"
-                )
+                banner.update(self._banner_content())
+                self._refresh_welcome_cards()
             elif action == "token_increment":
                 toks_inc: int = int(ev.payload.get("tokens", 0))
                 cost_inc: float = float(ev.payload.get("cost_usd", 0.0))
@@ -1888,6 +2253,9 @@ __all__: list[str] = [
     "MessageCard",
     "NeuriChatApp",
     "PromptInput",
+    "ShellCommandCard",
+    "ShellResultCard",
     "SlashAutocompletePopup",
     "TelemetryBar",
+    "WelcomeCard",
 ]
