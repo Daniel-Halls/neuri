@@ -4,9 +4,16 @@ Provides embedded local HTTP streaming and declarative scene management for
 multiplanar volume rendering, surface meshes, and streamline tractography.
 """
 
-from neuri.viewer.niivue_bridge import NiiVueBridge, NiiVueBridgeHandler
+from neuri.viewer.local_explorer import LocalFileExplorer
+from neuri.viewer.niivue_bridge import (
+    NiiVueBridge,
+    NiiVueBridgeHandler,
+    NiiVueHTTPServer,
+)
 
 __all__: list[str] = [
+    "LocalFileExplorer",
     "NiiVueBridge",
     "NiiVueBridgeHandler",
+    "NiiVueHTTPServer",
 ]

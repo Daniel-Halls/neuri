@@ -47,7 +47,6 @@ from neuri.literature import (
 from neuri.remote.bootstrap import RemoteHostBootstrapper
 from neuri.remote.monitor import RemoteHostMonitor
 from neuri.remote.slurm_bridge import DetachAndReconcileManager
-from neuri.viewer.niivue_bridge import NiiVueBridge
 
 
 class SlashCommandResult(BaseModel):
@@ -1324,6 +1323,8 @@ class SlashCommandRouter:
         """
         no_open: bool = "--no-open" in args
         clean_args: list[str] = [a for a in args if a != "--no-open"]
+
+        from neuri.viewer.niivue_bridge import NiiVueBridge
 
         bridge: NiiVueBridge = NiiVueBridge.get_instance()
         if not bridge.is_running():

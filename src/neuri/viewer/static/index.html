@@ -33,7 +33,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      min-width: 200px;
+      min-width: 220px;
     }
     .brand h1 {
       font-size: 1.05rem;
@@ -50,12 +50,91 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 240px;
+      max-width: 220px;
     }
     .controls {
       display: flex;
       align-items: center;
+      gap: 8px;
+    }
+    .file-action-group {
+      display: flex;
+      align-items: center;
       gap: 6px;
+      background: #1e293b;
+      padding: 3px 6px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+    }
+    .host-box {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      padding-left: 4px;
+    }
+    .host-select {
+      background: #0b0f17;
+      color: #38bdf8;
+      border: 1px solid #334155;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.76rem;
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+      outline: none;
+      cursor: pointer;
+    }
+    .host-select:hover, .host-select:focus {
+      border-color: #38bdf8;
+    }
+    .primary-btn {
+      background: #0284c7;
+      color: #ffffff;
+      border: 1px solid #38bdf8;
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .primary-btn:hover {
+      background: #0369a1;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    }
+    .primary-btn:disabled {
+      background: #334155;
+      color: #64748b;
+      border-color: #475569;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .secondary-btn {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .secondary-btn:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+    .secondary-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
     .segmented-group {
       display: flex;
@@ -129,6 +208,10 @@
       width: 100%;
       height: 100%;
     }
+    #canvas-container.drag-hover {
+      outline: 3px dashed #38bdf8;
+      outline-offset: -8px;
+    }
     canvas {
       width: 100%;
       height: 100%;
@@ -162,8 +245,234 @@
       color: #94a3b8;
       pointer-events: none;
     }
+
+    /* File Explorer Modal Styling */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(11, 15, 23, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-dialog {
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 860px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 12px 18px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-title h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-subtitle {
+      font-size: 0.72rem;
+      color: #94a3b8;
+    }
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .close-btn:hover {
+      color: #ffffff;
+      background: #334155;
+    }
+    .modal-toolbar {
+      padding: 10px 18px;
+      background: #0f172a;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .quick-nav, .system-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .path-bar-container {
+      padding: 8px 18px;
+      background: #111827;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .path-label {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+    #fs-current-path-input {
+      flex: 1;
+      background: #0b0f17;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #f1f5f9;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+      font-size: 0.75rem;
+      padding: 5px 8px;
+      outline: none;
+    }
+    #fs-current-path-input:focus {
+      border-color: #38bdf8;
+    }
+    .filter-bar {
+      padding: 8px 18px;
+      background: #111827;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    #fs-filter-input {
+      flex: 1;
+      background: #0b0f17;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #f1f5f9;
+      font-size: 0.75rem;
+      padding: 5px 8px;
+      outline: none;
+    }
+    #fs-filter-input:focus {
+      border-color: #38bdf8;
+    }
+    .checkbox-label {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .fs-list-container {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 260px;
+      max-height: 400px;
+      background: #0b0f17;
+    }
+    .fs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+    .fs-table th {
+      position: sticky;
+      top: 0;
+      background: #1e293b;
+      color: #94a3b8;
+      font-weight: 600;
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid #334155;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      z-index: 2;
+    }
+    .fs-table td {
+      padding: 7px 12px;
+      border-bottom: 1px solid #1e293b;
+      color: #cbd5e1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .fs-row {
+      cursor: pointer;
+      transition: background 0.1s ease;
+      user-select: none;
+    }
+    .fs-row:hover {
+      background: #1e293b;
+    }
+    .fs-row.selected {
+      background: #0c4a6e !important;
+      color: #ffffff;
+    }
+    .badge-volume {
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      letter-spacing: 0.03em;
+      margin-left: 6px;
+    }
+    .badge-dir {
+      background: #334155;
+      color: #94a3b8;
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .fs-empty-state {
+      padding: 50px 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 0.82rem;
+    }
+    .modal-footer {
+      padding: 12px 18px;
+      background: #111827;
+      border-top: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .selected-file-info {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 480px;
+    }
+    .modal-footer-btns {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/@niivue/niivue@0.44.0/dist/niivue.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@niivue/niivue@0.69.0/dist/niivue.umd.js"></script>
 </head>
 <body>
   <header>
@@ -172,6 +481,19 @@
       <span id="scene-title">Waiting for scene manifest...</span>
     </div>
     <div class="controls">
+      <div class="file-action-group">
+        <div class="host-box" title="Select target machine (localhost or remote SSH host) to browse for neuroimaging volumes">
+          <span>🖥 Host:</span>
+          <select id="host-select" class="host-select" onchange="onHostSelectChange(this.value)">
+            <option value="localhost">localhost</option>
+          </select>
+        </div>
+        <button id="btn-open-volume" class="primary-btn" onclick="openFileExplorerModal()" title="Open file explorer to browse volumes on the selected host">
+          📂 Open Volume
+        </button>
+        <input type="file" id="browser-file-picker" style="display: none;" accept=".nii,.nii.gz,.mgh,.mgz,.dcm,.dim,.img,.hdr" onchange="handleBrowserFileSelected(event)">
+      </div>
+
       <div class="segmented-group">
         <button id="btn-multi" class="active" onclick="setViewMode(0)">Multi</button>
         <button id="btn-axial" onclick="setViewMode(1)">Axial</button>
@@ -203,18 +525,104 @@
   <div id="canvas-container">
     <canvas id="gl"></canvas>
     <div id="hud">
+      <div><strong>Host:</strong> <span id="hud-host">localhost</span></div>
       <div><strong>Scene:</strong> <span id="hud-scene-id">None</span></div>
       <div><strong>Volumes:</strong> <span id="hud-layers">0</span></div>
       <div><strong>Crosshair:</strong> Active</div>
     </div>
     <div id="controls-hint">
-      Drag: slice │ Right-click: zoom │ Scroll: cycle │ Space: crosshair
+      Drag & Drop volume │ Drag: slice │ Right-click: zoom │ Scroll: cycle │ Space: crosshair
+    </div>
+  </div>
+
+  <!-- Unified Local & Remote SSH File Explorer Modal -->
+  <div id="file-explorer-modal" class="modal-backdrop" style="display: none;" onclick="onModalBackdropClick(event)">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <h3 id="modal-explorer-heading">🗂 File Explorer — localhost</h3>
+          <span id="modal-explorer-subtitle" class="modal-subtitle">Browse and select neuroimaging volumes on localhost</span>
+        </div>
+        <button class="close-btn" onclick="closeFileExplorerModal()" title="Close">✕</button>
+      </div>
+
+      <div class="modal-toolbar">
+        <div class="quick-nav">
+          <div class="host-box">
+            <span>🖥 Host:</span>
+            <select id="modal-host-select" class="host-select" onchange="onHostSelectChange(this.value)">
+              <option value="localhost">localhost</option>
+            </select>
+          </div>
+          <button class="secondary-btn" onclick="navigateDir('workspace')" title="Jump to Workspace directory">💼 Workspace</button>
+          <button class="secondary-btn" onclick="navigateDir('home')" title="Jump to Home directory">🏠 Home</button>
+          <button id="btn-nav-up" class="secondary-btn" onclick="navigateUp()" title="Go up one folder">⬆ Up</button>
+        </div>
+        <div class="system-actions">
+          <button id="btn-system-dialog" class="secondary-btn" onclick="openSystemFileDialog()" title="Launch native OS file chooser (localhost only)">🖥 System Dialog</button>
+          <button class="secondary-btn" onclick="triggerBrowserFilePicker()" title="Upload a file directly from your local browser">📥 Local Upload</button>
+        </div>
+      </div>
+
+      <div class="path-bar-container">
+        <span class="path-label">Path:</span>
+        <input type="text" id="fs-current-path-input" onkeydown="if(event.key==='Enter') navigateToCustomPath(this.value)" placeholder="/path/to/folder">
+        <button class="secondary-btn" onclick="navigateToCustomPath(document.getElementById('fs-current-path-input').value)">Go</button>
+      </div>
+
+      <div class="filter-bar">
+        <input type="text" id="fs-filter-input" placeholder="🔍 Filter volumes & files (e.g. sub-01, .nii.gz)" oninput="filterEntries(this.value)">
+        <label class="checkbox-label">
+          <input type="checkbox" id="fs-show-all-checkbox" onchange="toggleShowAllFiles(this.checked)"> Show all files
+        </label>
+      </div>
+
+      <div class="fs-list-container">
+        <table class="fs-table">
+          <thead>
+            <tr>
+              <th style="width: 52%;">Name</th>
+              <th style="width: 14%;">Type</th>
+              <th style="width: 14%;">Size</th>
+              <th style="width: 20%;">Modified</th>
+            </tr>
+          </thead>
+          <tbody id="fs-entries-body">
+            <!-- Entries rendered dynamically -->
+          </tbody>
+        </table>
+        <div id="fs-empty-msg" class="fs-empty-state" style="display: none;">
+          No neuroimaging volumes found in this folder.
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div class="selected-file-info">
+          <span id="selected-file-label">Selected: <em>None</em></span>
+        </div>
+        <div class="modal-footer-btns">
+          <button class="secondary-btn" onclick="closeFileExplorerModal()">Cancel</button>
+          <button id="btn-confirm-open" class="primary-btn" onclick="confirmOpenSelectedFile()" disabled>Open Volume</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
     let nv = null;
     let currentSceneId = null;
+
+    // Multi-Host & File Explorer State
+    let currentHost = "localhost";
+    let availableHosts = ["localhost"];
+    let hostPaths = {};
+    let currentFsPath = "";
+    let parentFsPath = null;
+    let homeFsPath = "";
+    let workspaceFsPath = "";
+    let rawFsEntries = [];
+    let selectedFsEntry = null;
+    let showAllFiles = false;
 
     async function initNiiVue() {
       if (typeof niivue === "undefined") {
@@ -237,8 +645,93 @@
         }
       });
       nv.attachTo("gl");
+      setupDragAndDrop();
+      await loadAvailableHosts();
       pollScene();
       setInterval(pollScene, 2000);
+    }
+
+    async function loadAvailableHosts() {
+      try {
+        const res = await fetch("/api/hosts");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.hosts) && data.hosts.length > 0) {
+          availableHosts = data.hosts;
+        }
+        if (data.default_host && availableHosts.includes(data.default_host)) {
+          currentHost = data.default_host;
+        }
+        renderHostSelectOptions();
+        updateHostUI();
+      } catch (err) {
+        console.warn("Could not fetch available hosts:", err);
+      }
+    }
+
+    function renderHostSelectOptions() {
+      const selects = [
+        document.getElementById("host-select"),
+        document.getElementById("modal-host-select")
+      ];
+      selects.forEach(sel => {
+        if (!sel) return;
+        sel.innerHTML = "";
+        availableHosts.forEach(h => {
+          const opt = document.createElement("option");
+          opt.value = h;
+          opt.textContent = h === "localhost" ? "localhost (local)" : `${h} (SSH)`;
+          if (h === currentHost) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        const customOpt = document.createElement("option");
+        customOpt.value = "__custom__";
+        customOpt.textContent = "+ Custom SSH Host...";
+        sel.appendChild(customOpt);
+      });
+    }
+
+    function onHostSelectChange(val) {
+      if (val === "__custom__") {
+        const customHost = prompt("Enter SSH host alias or user@hostname (e.g. gpu-cluster or user@10.0.0.5):");
+        if (customHost && customHost.trim()) {
+          const clean = customHost.trim();
+          if (!availableHosts.includes(clean)) {
+            availableHosts.push(clean);
+          }
+          currentHost = clean;
+        }
+        renderHostSelectOptions();
+      } else {
+        currentHost = val || "localhost";
+        renderHostSelectOptions();
+      }
+      updateHostUI();
+
+      const modal = document.getElementById("file-explorer-modal");
+      if (modal && modal.style.display !== "none") {
+        const savedPath = hostPaths[currentHost] || null;
+        loadDirectoryListing(savedPath);
+      }
+    }
+
+    function updateHostUI() {
+      const hudHost = document.getElementById("hud-host");
+      if (hudHost) hudHost.innerText = currentHost;
+
+      const heading = document.getElementById("modal-explorer-heading");
+      const subtitle = document.getElementById("modal-explorer-subtitle");
+      const sysBtn = document.getElementById("btn-system-dialog");
+
+      if (currentHost === "localhost") {
+        if (heading) heading.innerText = "🗂 File Explorer — localhost";
+        if (subtitle) subtitle.innerText = "Browse and select neuroimaging volumes on localhost";
+        if (sysBtn) sysBtn.style.display = "inline-flex";
+      } else {
+        if (heading) heading.innerText = `🗂 File Explorer — ${currentHost} (SSH)`;
+        if (subtitle) subtitle.innerText = `Zero-daemon remote browsing over multiplexed SSH on ${currentHost}`;
+        if (sysBtn) sysBtn.style.display = "none";
+      }
     }
 
     function setViewMode(mode) {
@@ -281,14 +774,33 @@
         document.getElementById("hud-layers").innerText = (scene.volumes ? scene.volumes.length : 0);
 
         if (scene.volumes && scene.volumes.length > 0) {
-          const volumeList = scene.volumes.map(v => ({
-            url: v.artifact_uri.startsWith("http") ? v.artifact_uri : `/api/file?uri=${encodeURIComponent(v.artifact_uri)}`,
-            colormap: v.colormap || "gray",
-            opacity: v.opacity !== undefined ? v.opacity : 1.0,
-            cal_min: v.cal_min,
-            cal_max: v.cal_max
-          }));
-          await nv.loadVolumes(volumeList);
+          const volumeList = scene.volumes.map(v => {
+            const raw = v.artifact_uri.split("/").pop().split("\\").pop() || "volume.nii.gz";
+            const fName = raw.indexOf("?") > -1 ? raw.slice(0, raw.indexOf("?")) : raw;
+            const fileUrl = v.artifact_uri.startsWith("http")
+              ? v.artifact_uri
+              : `/api/file/${encodeURIComponent(fName)}?uri=${encodeURIComponent(v.artifact_uri)}`;
+            return {
+              url: fileUrl,
+              name: fName,
+              colormap: v.colormap || "gray",
+              opacity: v.opacity !== undefined ? v.opacity : 1.0,
+              cal_min: v.cal_min,
+              cal_max: v.cal_max
+            };
+          });
+          try {
+            await nv.loadVolumes(volumeList);
+          } catch (pollErr) {
+            console.warn("loadVolumes failed, using ArrayBuffer fallback:", pollErr);
+            for (const vol of volumeList) {
+              const resp = await fetch(vol.url);
+              if (resp.ok) {
+                const buf = await resp.arrayBuffer();
+                await nv.loadFromArrayBuffer(buf, vol.name);
+              }
+            }
+          }
           if (scene.volumes[0].colormap) {
             const sel = document.getElementById("colormap-select");
             if (sel) sel.value = scene.volumes[0].colormap;
@@ -314,6 +826,364 @@
         console.warn("Scene poll failed:", err);
       }
     }
+
+    // -------------------------------------------------------------------------
+    // Native OS & Browser File Opening
+    // -------------------------------------------------------------------------
+    async function openSystemFileDialog() {
+      const btn = document.getElementById("btn-system-dialog");
+      const originalText = btn ? btn.innerHTML : "🖥 System Dialog";
+      if (btn) {
+        btn.innerHTML = "⏳ Opening...";
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch("/api/open-dialog", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+        const data = await res.json();
+        if (data.status === "ok" && data.path) {
+          closeFileExplorerModal();
+          await applyLoadedVolume(data);
+        }
+      } catch (err) {
+        console.warn("System file dialog failed:", err);
+      } finally {
+        if (btn) {
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+        }
+      }
+    }
+
+    async function applyLoadedVolume(data) {
+      if (!nv) return;
+      const rawName = data.title
+        ? data.title.replace(/^Neuri(\s*\[[^\]]+\])?:\s*/, "")
+        : (data.path ? data.path.split("/").pop().split("\\").pop() : "volume.nii.gz");
+      const fileName = rawName.indexOf("?") > -1 ? rawName.slice(0, rawName.indexOf("?")) : rawName;
+      const hostLabel = data.host || currentHost || "localhost";
+
+      if (data.scene && data.scene.scene_id) {
+        currentSceneId = data.scene.scene_id;
+        document.getElementById("hud-scene-id").innerText = data.scene.scene_id;
+      } else {
+        currentSceneId = "custom_" + Date.now();
+        document.getElementById("hud-scene-id").innerText = currentSceneId;
+      }
+      const displayTitle = hostLabel === "localhost"
+        ? `Neuri: ${fileName}`
+        : `Neuri [${hostLabel}]: ${fileName}`;
+      document.getElementById("scene-title").innerText = displayTitle;
+      document.getElementById("hud-host").innerText = hostLabel;
+      document.getElementById("hud-layers").innerText = 1;
+
+      const volUrl = `/api/file/${encodeURIComponent(fileName)}?uri=${encodeURIComponent(data.path)}`;
+      try {
+        await nv.loadVolumes([{
+          url: volUrl,
+          name: fileName,
+          colormap: "gray",
+          opacity: 1.0
+        }]);
+      } catch (loadErr) {
+        console.warn("loadVolumes failed, using ArrayBuffer fallback:", loadErr);
+        const resp = await fetch(volUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        const buffer = await resp.arrayBuffer();
+        await nv.loadFromArrayBuffer(buffer, fileName);
+      }
+    }
+
+    function triggerBrowserFilePicker() {
+      const input = document.getElementById("browser-file-picker");
+      if (input) input.click();
+    }
+
+    async function handleBrowserFileSelected(event) {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+      closeFileExplorerModal();
+      await handleLocalFileObject(files[0]);
+    }
+
+    async function handleLocalFileObject(file) {
+      if (!nv) return;
+      try {
+        document.getElementById("scene-title").innerText = `Loading: ${file.name}...`;
+        if (typeof nv.loadFromFile === "function") {
+          try {
+            await nv.loadFromFile(file);
+          } catch (fileErr) {
+            console.warn("loadFromFile failed, trying ArrayBuffer fallback:", fileErr);
+            const buffer = await file.arrayBuffer();
+            await nv.loadFromArrayBuffer(buffer, file.name);
+          }
+        } else {
+          const buffer = await file.arrayBuffer();
+          await nv.loadFromArrayBuffer(buffer, file.name);
+        }
+        currentSceneId = "local_" + Date.now();
+        document.getElementById("scene-title").innerText = `Neuri: ${file.name}`;
+        document.getElementById("hud-scene-id").innerText = "browser-upload";
+        document.getElementById("hud-layers").innerText = (nv.volumes ? nv.volumes.length : 1);
+      } catch (err) {
+        console.error("Failed to load local file object:", err);
+        alert(`Failed to load volume: ${err.message || err}`);
+      }
+    }
+
+    function setupDragAndDrop() {
+      const container = document.getElementById("canvas-container");
+      if (!container) return;
+      container.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        container.classList.add("drag-hover");
+      });
+      container.addEventListener("dragleave", () => {
+        container.classList.remove("drag-hover");
+      });
+      container.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        container.classList.remove("drag-hover");
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          await handleLocalFileObject(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // Unified Local & Remote SSH File Explorer Modal
+    // -------------------------------------------------------------------------
+    function openFileExplorerModal() {
+      const modal = document.getElementById("file-explorer-modal");
+      if (!modal) return;
+      updateHostUI();
+      modal.style.display = "flex";
+      const savedPath = hostPaths[currentHost] || null;
+      loadDirectoryListing(savedPath);
+    }
+
+    function closeFileExplorerModal() {
+      const modal = document.getElementById("file-explorer-modal");
+      if (modal) modal.style.display = "none";
+      selectedFsEntry = null;
+      updateSelectedState();
+    }
+
+    function onModalBackdropClick(event) {
+      if (event.target.id === "file-explorer-modal") {
+        closeFileExplorerModal();
+      }
+    }
+
+    async function loadDirectoryListing(dirPath) {
+      const tbody = document.getElementById("fs-entries-body");
+      const emptyMsg = document.getElementById("fs-empty-msg");
+      const hostDesc = currentHost === "localhost" ? "localhost" : `${currentHost} over SSH`;
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#94a3b8;">⏳ Loading directory on <strong>${hostDesc}</strong>...</td></tr>`;
+      }
+      if (emptyMsg) emptyMsg.style.display = "none";
+
+      try {
+        let url = `/api/fs/list?host=${encodeURIComponent(currentHost)}`;
+        if (dirPath) {
+          url += `&path=${encodeURIComponent(dirPath)}`;
+        }
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+        const data = await res.json();
+
+        currentFsPath = data.current_path || "";
+        parentFsPath = data.parent_path || null;
+        homeFsPath = data.home_path || "";
+        workspaceFsPath = data.workspace_path || "";
+        rawFsEntries = data.entries || [];
+
+        if (currentFsPath) {
+          hostPaths[currentHost] = currentFsPath;
+        }
+
+        const pathInput = document.getElementById("fs-current-path-input");
+        if (pathInput) pathInput.value = currentFsPath;
+
+        const btnUp = document.getElementById("btn-nav-up");
+        if (btnUp) btnUp.disabled = !parentFsPath;
+
+        selectedFsEntry = null;
+        updateSelectedState();
+
+        if (data.error) {
+          if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#ef4444;">⚠️ ${data.error}</td></tr>`;
+          }
+          return;
+        }
+
+        renderFsEntries();
+      } catch (err) {
+        console.error("Failed to load directory:", err);
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#ef4444;">Error loading directory: ${err.message || err}</td></tr>`;
+        }
+      }
+    }
+
+    function renderFsEntries() {
+      const tbody = document.getElementById("fs-entries-body");
+      const emptyMsg = document.getElementById("fs-empty-msg");
+      if (!tbody) return;
+
+      const filterText = (document.getElementById("fs-filter-input")?.value || "").toLowerCase().trim();
+
+      const filtered = rawFsEntries.filter(entry => {
+        if (!showAllFiles && !entry.is_dir && !entry.is_volume) {
+          return false;
+        }
+        if (filterText) {
+          return entry.name.toLowerCase().includes(filterText);
+        }
+        return true;
+      });
+
+      tbody.innerHTML = "";
+      if (filtered.length === 0) {
+        if (emptyMsg) emptyMsg.style.display = "block";
+        return;
+      }
+      if (emptyMsg) emptyMsg.style.display = "none";
+
+      filtered.forEach(entry => {
+        const tr = document.createElement("tr");
+        tr.className = `fs-row ${entry.is_volume ? "is-volume" : ""}`;
+        if (selectedFsEntry && selectedFsEntry.path === entry.path) {
+          tr.classList.add("selected");
+        }
+
+        let icon = entry.is_dir ? "📁" : (entry.is_volume ? "🧠" : "📄");
+        let badge = entry.is_dir ? `<span class="badge-dir">FOLDER</span>` : (entry.is_volume ? `<span class="badge-volume">VOLUME</span>` : "");
+        let typeStr = entry.is_dir ? "Directory" : (entry.is_volume ? "Neuro Volume" : "File");
+
+        tr.innerHTML = `
+          <td>${icon} ${entry.name} ${badge}</td>
+          <td>${typeStr}</td>
+          <td>${entry.size_formatted || "--"}</td>
+          <td>${entry.modified || "--"}</td>
+        `;
+
+        tr.onclick = () => onRowClick(entry, tr);
+        tr.ondblclick = () => onRowDoubleClick(entry);
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    function onRowClick(entry, rowElement) {
+      if (entry.is_dir) {
+        loadDirectoryListing(entry.path);
+        return;
+      }
+      selectedFsEntry = entry;
+      document.querySelectorAll(".fs-row").forEach(r => r.classList.remove("selected"));
+      rowElement.classList.add("selected");
+      updateSelectedState();
+    }
+
+    async function onRowDoubleClick(entry) {
+      if (entry.is_dir) {
+        loadDirectoryListing(entry.path);
+      } else if (entry.is_volume) {
+        await openVolumePath(entry.path);
+      }
+    }
+
+    function updateSelectedState() {
+      const label = document.getElementById("selected-file-label");
+      const btn = document.getElementById("btn-confirm-open");
+      if (selectedFsEntry && selectedFsEntry.is_volume) {
+        if (label) label.innerHTML = `Selected: <strong>${selectedFsEntry.name}</strong> (${selectedFsEntry.size_formatted})`;
+        if (btn) btn.disabled = false;
+      } else {
+        if (label) label.innerHTML = `Selected: <em>None</em>`;
+        if (btn) btn.disabled = true;
+      }
+    }
+
+    async function confirmOpenSelectedFile() {
+      if (!selectedFsEntry || !selectedFsEntry.path) return;
+      await openVolumePath(selectedFsEntry.path);
+    }
+
+    async function openVolumePath(filePath) {
+      const btn = document.getElementById("btn-confirm-open");
+      if (btn) {
+        btn.innerHTML = currentHost === "localhost" ? "⏳ Loading..." : `⏳ Staging from ${currentHost}...`;
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch("/api/fs/open", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: filePath, host: currentHost })
+        });
+        if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+        const data = await res.json();
+        if (data.status === "ok") {
+          closeFileExplorerModal();
+          await applyLoadedVolume(data);
+        } else {
+          alert(`Error opening volume: ${data.message || "Unknown error"}`);
+        }
+      } catch (err) {
+        console.error("Failed to open volume:", err);
+        alert(`Failed to open volume: ${err.message || err}`);
+      } finally {
+        if (btn) {
+          btn.innerHTML = "Open Volume";
+          btn.disabled = false;
+        }
+      }
+    }
+
+    function navigateUp() {
+      if (parentFsPath) {
+        loadDirectoryListing(parentFsPath);
+      }
+    }
+
+    function navigateDir(target) {
+      if (target === "home" && homeFsPath) {
+        loadDirectoryListing(homeFsPath);
+      } else if (target === "workspace" && workspaceFsPath) {
+        loadDirectoryListing(workspaceFsPath);
+      }
+    }
+
+    function navigateToCustomPath(pathStr) {
+      if (pathStr && pathStr.trim()) {
+        loadDirectoryListing(pathStr.trim());
+      }
+    }
+
+    function filterEntries() {
+      renderFsEntries();
+    }
+
+    function toggleShowAllFiles(checked) {
+      showAllFiles = checked;
+      renderFsEntries();
+    }
+
+    // Keyboard Shortcuts (Escape to close modal)
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        const modal = document.getElementById("file-explorer-modal");
+        if (modal && modal.style.display !== "none") {
+          closeFileExplorerModal();
+        }
+      }
+    });
 
     window.addEventListener("DOMContentLoaded", initNiiVue);
   </script>
