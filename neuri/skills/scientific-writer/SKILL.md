@@ -26,7 +26,7 @@ You operate in four specialized modes depending on the user's request:
 ## Mode 1: Style Calibration from Google Scholar Link
 When the user provides a Google Scholar profile URL, ORCID, or author name:
 1. **Fetch the Corpus Automatically:**
-   Run: `python3 ~/.gemini/config/skills/scientific-writer/scripts/fetch_scholar_corpus.py "<GOOGLE_SCHOLAR_URL_OR_NAME>"`
+   Run: the python script located in the `/skills/scientific-writer/scripts/fetch_scholar_corpus.py" <GOOGLE_SCHOLAR_URL_OR_NAME>"`
    *(If Scholar serves a CAPTCHA, also query `paper-search` or `scholar` MCP for the user's first-author papers at King's College London and University of Nottingham).*
 2. **Analyze the Linguistic Fingerprint:**
    Inspect how the user writes across Abstract, Introduction, Methods, Results, and Discussion. Save the analysis to `references/style-profile.md`:
@@ -50,7 +50,7 @@ When the user shares a draft paragraph, section, or manuscript and asks you to *
 ### Pass 2: Factual, Methodological & Citation Verification
 - Cross-check every factual statement, mathematical formulation, software parameter, and citation against:
   a) Our local knowledge graph (`basic-memory` via `search_notes` / `read_note`).
-  b) Uploaded project PDFs (`notebooklm` skill).
+  b) Uploaded project PDFs (`notebooklm` skill) If the user has a notebooklm source.
   c) Live literature (`scholar` MCP / `paper-search` via PubMed/bioRxiv/OpenAlex).
 - Flag any misattributed citations, unsupported mechanistic leaps, or missing statistical priors/assumptions.
 

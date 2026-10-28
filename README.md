@@ -26,17 +26,11 @@ Neuri requires **Python 3.12+** and is managed using [`uv`](https://github.com/a
 
 ### Quick Install (Recommended)
 
-Run the automated installer script from the repository root:
+Run `make install` from the repository root:
 
 ```bash
 git clone https://github.com/your-org/neuri.git
 cd neuri
-./install.sh
-```
-
-Or using `make`:
-
-```bash
 make install
 ```
 
