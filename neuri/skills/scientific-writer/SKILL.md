@@ -27,7 +27,7 @@ You operate in four specialized modes depending on the user's request:
 When the user provides a Google Scholar profile URL, ORCID, or author name:
 1. **Fetch the Corpus Automatically:**
    Run: the python script located in the `/skills/scientific-writer/scripts/fetch_scholar_corpus.py" <GOOGLE_SCHOLAR_URL_OR_NAME>"`
-   *(If Scholar serves a CAPTCHA, also query `paper-search` or `scholar` MCP for the user's first-author papers at King's College London and University of Nottingham).*
+   *(If Scholar serves a CAPTCHA, also query `paper-search` or `scholar` MCP for the user's first-author papers.*
 2. **Analyze the Linguistic Fingerprint:**
    Inspect how the user writes across Abstract, Introduction, Methods, Results, and Discussion. Save the analysis to `references/style-profile.md`:
    - **Spelling & Conventions:** British English conventions (*characterise*, *fibre*, *grey matter*, *modelling*, *factorisation*).
