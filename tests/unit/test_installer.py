@@ -61,6 +61,13 @@ def test_installer_creates_directory_structure(tmp_path: Path) -> None:
     assert "mcp" in summary["installed"]
     assert "rules" in summary["installed"]
     assert "themes" in summary["installed"]
+    assert "brain" in summary["installed"]
+
+    # Verify brain subfolder contains pipeline documentation
+    brain_doc_dir: Path = target_dir / "brain" / "doc"
+    assert brain_doc_dir.is_dir()
+    assert (brain_doc_dir / "fMRIPrep" / "commands.md").is_file()
+    assert (brain_doc_dir / "FSL" / "documentation.md").is_file()
 
     # Verify global subfolder contains master prompt
     master_prompt_path: Path = target_dir / "global" / "master_prompt.md"
@@ -109,7 +116,7 @@ def test_installer_idempotency_and_force(tmp_path: Path) -> None:
 
     # First run: installs sections
     summary1: dict[str, Any] = installer.install(force=False)
-    assert len(summary1["installed"]) == 5
+    assert len(summary1["installed"]) == 6
 
     # Second run without force: already installed, so empty list
     summary2: dict[str, Any] = installer.install(force=False)
@@ -125,7 +132,7 @@ def test_installer_idempotency_and_force(tmp_path: Path) -> None:
 
     # Fourth run with force: prompt is overwritten from base
     summary4: dict[str, Any] = installer.install(force=True)
-    assert len(summary4["installed"]) == 5
+    assert len(summary4["installed"]) == 6
     restored: str = prompt_file.read_text(encoding="utf-8")
     assert "Neuri Master System Prompt" in restored
 

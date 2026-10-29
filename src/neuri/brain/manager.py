@@ -6,6 +6,7 @@ deep-linking integration.
 """
 
 from pathlib import Path
+import shutil
 import urllib.parse
 
 from neuri.brain.indexer import BrainIndexer
@@ -203,6 +204,19 @@ class BrainManager:
             )
             standards_file.write_text(md, encoding="utf-8")
             created_files.append(standards_file)
+
+        # Synchronize pipeline documentation if available
+        target_doc: Path = self._global_vault / "doc"
+        if not target_doc.is_dir() or not any(target_doc.iterdir()):
+            from neuri.core.paths import PathResolver
+
+            src_doc: Path = (
+                PathResolver.get_base_template_dir() / "brain" / "doc"
+            )
+            if not src_doc.is_dir():
+                src_doc = PathResolver.get_repo_root() / "brain" / "doc"
+            if src_doc.is_dir():
+                shutil.copytree(src_doc, target_doc, dirs_exist_ok=True)
 
         self.sync_all()
         return created_files
