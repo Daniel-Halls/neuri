@@ -54,6 +54,8 @@ class NeuriSessionEngine:
         workspace_dir: Path | None = None,
         config: NeuriConfig | None = None,
         blackboard: Blackboard | None = None,
+        model: str | None = None,
+        harness: str | None = None,
     ) -> None:
         """Initialize session engine and instantiate core subsystems.
 
@@ -65,6 +67,10 @@ class NeuriSessionEngine:
             Configuration model. Defaults to None.
         blackboard: Blackboard | None
             Blackboard store. Defaults to None.
+        model: str | None
+            Active AI model override across harnesses. Defaults to None.
+        harness: str | None
+            Active AI harness override across roles. Defaults to None.
 
         Returns
         --------
@@ -78,6 +84,26 @@ class NeuriSessionEngine:
         self._config: NeuriConfig = (
             config if config is not None else load_config(self._workspace_dir)
         )
+        if harness is not None and harness.strip():
+            h_clean: str = harness.strip().lower()
+            if h_clean == "antigravity":
+                canonical_h: str = "agy"
+            elif h_clean == "ollama_local":
+                canonical_h = "ollama"
+            else:
+                canonical_h = h_clean
+            self._config.project.default_harness = canonical_h
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.harness = canonical_h
+
+        explicit_model: str | None = None
+        if model is not None and model.strip():
+            explicit_model = model.strip()
+            self._config.project.default_model = explicit_model
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.model = explicit_model
 
         db_path: Path = self._resolve_db_path()
         self._blackboard: Blackboard = (
@@ -87,6 +113,15 @@ class NeuriSessionEngine:
             blackboard=self._blackboard,
             config=self._config,
         )
+        if explicit_model is None:
+            resolved_m: str | None = self._orchestrator.resolve_active_model(
+                self.harness
+            )
+            if resolved_m is not None:
+                self._config.project.default_model = resolved_m
+                if isinstance(self._config.harness_routing, dict):
+                    for r_cfg in self._config.harness_routing.values():
+                        r_cfg.model = resolved_m
         self._slash_router: SlashCommandRouter = SlashCommandRouter(
             workspace_dir=self._workspace_dir,
             config=self._config,
@@ -152,6 +187,38 @@ class NeuriSessionEngine:
         """
         cfg: NeuriConfig = self._config
         return cfg
+
+    @property
+    def harness(self) -> str:
+        """Active AI harness identifier applied across all roles.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Active harness ID string.
+        """
+        h_id: str = getattr(self._config.project, "default_harness", "agy")
+        return h_id
+
+    @property
+    def model(self) -> str | None:
+        """Active AI model identifier applied across all roles.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str | None: string or None
+                Model name string or None if vendor default.
+        """
+        m_id: str | None = getattr(self._config.project, "default_model", None)
+        return m_id
 
     @property
     def turns(self) -> list[ChatTurn]:
@@ -504,7 +571,16 @@ class NeuriSessionEngine:
             None: NoneType object
                 Dispatches corresponding session event.
         """
-        if ev.event_type == "thinking_delta" and ev.thinking_text:
+        if ev.event_type == "content_delta" and ev.content_text:
+            self.emit_event(
+                SessionEventType.ASSISTANT_CHUNK,
+                {
+                    "workflow_id": ev.workflow_id,
+                    "node_id": ev.node_id,
+                    "content_delta": ev.content_text,
+                },
+            )
+        elif ev.event_type == "thinking_delta" and ev.thinking_text:
             self._accumulated_thinking.append(ev.thinking_text)
             self.emit_event(
                 SessionEventType.THINKING_CHUNK,
@@ -512,6 +588,18 @@ class NeuriSessionEngine:
                     "workflow_id": ev.workflow_id,
                     "node_id": ev.node_id,
                     "thinking_delta": ev.thinking_text,
+                },
+            )
+        elif ev.event_type == "tool_lifecycle":
+            self.emit_event(
+                SessionEventType.TOOL_CALL_UPDATE,
+                {
+                    "workflow_id": ev.workflow_id,
+                    "node_id": ev.node_id,
+                    "tool_name": ev.tool_name,
+                    "tool_host": ev.tool_host,
+                    "tool_status": ev.tool_status,
+                    "duration_ms": ev.duration_ms,
                 },
             )
         elif ev.event_type == "token_usage":
@@ -530,6 +618,16 @@ class NeuriSessionEngine:
                     "workflow_id": ev.workflow_id,
                     "node_id": ev.node_id,
                     "reason": ev.breaker_reason,
+                },
+            )
+        elif ev.event_type == "raw_stream" and ev.raw_text:
+            self.emit_event(
+                SessionEventType.STATUS_UPDATE,
+                {
+                    "action": "raw_stream",
+                    "workflow_id": ev.workflow_id,
+                    "node_id": ev.node_id,
+                    "raw_text": ev.raw_text,
                 },
             )
 

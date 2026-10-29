@@ -153,7 +153,7 @@ class AdapterRegistry:
         self._adapters[key] = adapter
 
     def list_available(self) -> list[str]:
-        """List all registered harness IDs whose CLI binaries are on PATH.
+        """List distinct available harness IDs whose CLI binaries are on PATH.
 
         Parameters
         ------------
@@ -162,14 +162,13 @@ class AdapterRegistry:
         Returns
         --------
             list[str]: list object
-                Sorted list of available harness IDs.
+                Sorted list of unique canonical available harness IDs.
         """
-        available: list[str] = [
-            h_id
-            for h_id, adapter in self._adapters.items()
-            if adapter.is_available()
-        ]
-        available_sorted: list[str] = sorted(set(available))
+        canonical_ids: set[str] = set()
+        for adapter in self._adapters.values():
+            if adapter.is_available():
+                canonical_ids.add(adapter.harness_id)
+        available_sorted: list[str] = sorted(canonical_ids)
         return available_sorted
 
     def list_all(self) -> list[str]:
@@ -186,6 +185,43 @@ class AdapterRegistry:
         """
         all_ids: list[str] = sorted(set(self._adapters.keys()))
         return all_ids
+
+    def get_models_for_harness(self, harness_id: str) -> list[str]:
+        """Query real model list directly from the target harness binary.
+
+        Parameters
+        ------------
+        harness_id: str
+            Target harness ID (e.g. 'agy', 'ollama').
+
+        Returns
+        --------
+            list[str]: list object
+                Models returned directly from the harness binary.
+        """
+        adapter: BaseHarnessAdapter = self.get_adapter(harness_id)
+        models: list[str] = adapter.list_available_models()
+        return models
+
+    def list_all_models(self) -> dict[str, list[str]]:
+        """Query real model lists across all available harnesses on system.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            dict[str, list[str]]: dictionary object
+                Mapping of harness ID to live models reported by binary.
+        """
+        result: dict[str, list[str]] = {}
+        for h_id in self.list_available():
+            adapter: BaseHarnessAdapter = self._adapters[h_id]
+            models: list[str] = adapter.list_available_models()
+            if models:
+                result[h_id] = models
+        return result
 
 
 __all__: list[str] = [

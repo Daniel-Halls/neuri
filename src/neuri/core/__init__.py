@@ -1,5 +1,7 @@
 """Core schemas, data models, blackboard, and orchestration for Neuri."""
 
+from typing import Any
+
 from neuri.core.blackboard import (
     ArtifactRegistrationError,
     Blackboard,
@@ -23,14 +25,13 @@ from neuri.core.config import (
     load_config,
 )
 from neuri.core.installer import NeuriInstaller
-from neuri.core.orchestrator import DAGOrchestrator, OrchestratorError
 from neuri.core.paths import PathResolver
-from neuri.core.rules import RuleLoader
 from neuri.core.preflight import (
     PreflightCheckResult,
     PreflightValidationError,
     PreflightValidator,
 )
+from neuri.core.rules import RuleLoader
 from neuri.core.schemas import (
     ChatRole,
     ChatTurn,
@@ -48,8 +49,6 @@ from neuri.core.schemas import (
     TaskState,
     TelemetryEvent,
 )
-from neuri.core.session import NeuriSessionEngine
-from neuri.core.slash_commands import SlashCommandResult, SlashCommandRouter
 from neuri.core.telemetry import (
     CircuitBreakerTripped,
     ConsecutiveToolFailureLimitExceeded,
@@ -66,6 +65,39 @@ from neuri.core.telemetry import (
     TokenCostTracker,
     WorkflowCostLimitExceeded,
 )
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily resolve orchestrator, session, and slash_commands symbols.
+
+    Prevents circular imports when `neuri.adapters` imports `neuri.core.schemas`.
+
+    Parameters
+    ------------
+    name: str
+        Attribute name requested on `neuri.core`.
+
+    Returns
+    --------
+        Any: Any object
+            Resolved class or object from core submodules.
+    """
+    if name in ("DAGOrchestrator", "OrchestratorError"):
+        from neuri.core import orchestrator
+
+        target: Any = getattr(orchestrator, name)
+        return target
+    if name == "NeuriSessionEngine":
+        from neuri.core.session import NeuriSessionEngine
+
+        return NeuriSessionEngine
+    if name in ("SlashCommandResult", "SlashCommandRouter"):
+        from neuri.core import slash_commands
+
+        cmd_target: Any = getattr(slash_commands, name)
+        return cmd_target
+    raise AttributeError(f"module 'neuri.core' has no attribute '{name}'")
+
 
 __all__: list[str] = [
     "ArtifactRegistrationError",

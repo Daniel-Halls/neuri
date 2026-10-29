@@ -683,6 +683,38 @@ class TestBlackboardTaskNodeCrud:
         assert updated.state == TaskState.RETRYING
         assert updated.attempt == 1
 
+    def test_update_node_state_retrying_to_pending(
+        self, blackboard: Blackboard
+    ) -> None:
+        """Verify RETRYING to PENDING transition is permitted for DAG reschedule.
+
+        Parameters
+        ------------
+        blackboard: Blackboard
+            Blackboard fixture.
+
+        Returns
+        --------
+            None: NoneType object
+                Asserts transition succeeds and node enters PENDING state.
+        """
+        blackboard.create_workflow("wf-retry", "Retry transition test")
+        node: TaskNode = TaskNode(
+            node_id="node-retry",
+            workflow_id="wf-retry",
+            agent_role="specialist",
+            harness_id="agy",
+        )
+        blackboard.create_node(node)
+        blackboard.update_node_state("node-retry", TaskState.RUNNING)
+        blackboard.update_node_state("node-retry", TaskState.RETRYING)
+        blackboard.update_node_state("node-retry", TaskState.PENDING)
+
+        updated: TaskNode | None = blackboard.get_node("node-retry")
+        assert updated is not None
+        assert updated.state == TaskState.PENDING
+        assert updated.attempt == 1
+
 
 class TestBlackboardDagTopologicalQueries:
     """Test suite for DAG edge construction, cycles, and get_ready_nodes."""

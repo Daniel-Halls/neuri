@@ -113,6 +113,8 @@ class SlashCommandRouter:
         "/skills",
         "/status",
         "/harness",
+        "/model",
+        "/models",
         "/remote",
         "/machines",
         "/cluster",
@@ -232,6 +234,8 @@ class SlashCommandRouter:
             return self._handle_status()
         elif cmd == "/harness":
             return self._handle_harness(args)
+        elif cmd in ("/model", "/models"):
+            return self._handle_model(args)
         elif cmd == "/remote":
             return self._handle_remote(args)
         elif cmd in ("/machines", "/cluster"):
@@ -459,15 +463,15 @@ class SlashCommandRouter:
         is_init: bool = (self._workspace_dir / ".neuri").is_dir()
         remote_host: str = self._config.project.default_remote_host
 
-        harness_default: str = "antigravity"
-        if isinstance(self._config.harness_routing, dict):
-            pe_cfg = self._config.harness_routing.get("pipeline_engineer")
-            if pe_cfg is not None:
-                harness_default = getattr(pe_cfg, "harness", str(pe_cfg))
-        elif hasattr(self._config.harness_routing, "default_harness"):
-            harness_default = getattr(
-                self._config.harness_routing, "default_harness"
-            )
+        active_harness: str = getattr(
+            self._config.project, "default_harness", "agy"
+        )
+        active_model: str | None = self._orchestrator.resolve_active_model(
+            active_harness
+        )
+        active_model_str: str = (
+            active_model if active_model else "(harness default)"
+        )
 
         init_status: str = "Yes" if is_init else "No (type /init to initialize)"
         cost_limit: str = f"${self._config.budgets.max_workflow_cost_usd:.2f}"
@@ -511,7 +515,8 @@ class SlashCommandRouter:
             f"- **Workspace Directory:** `{self._workspace_dir}`\n"
             f"- **Initialized (.neuri):** `{init_status}`\n"
             f"- **Default Remote Host:** `{remote_host}`\n"
-            f"- **Default Harness:** `{harness_default}`\n"
+            f"- **Active Harness:** `{active_harness}`\n"
+            f"- **Active Model:** `{active_model_str}`\n"
             f"- **Active Workflow:** {wf_info}\n"
             f"- **Workflow Nodes:** {node_counts_str}\n"
             f"- **Registered Artifacts:** `{total_artifacts}` volumes / files\n"
@@ -526,103 +531,490 @@ class SlashCommandRouter:
             data={
                 "workspace_initialized": is_init,
                 "remote_host": remote_host,
-                "default_harness": harness_default,
+                "default_harness": active_harness,
+                "default_model": active_model,
                 "artifacts_count": total_artifacts,
                 "citations_count": total_citations,
             },
         )
 
+    def _resolve_target_config_path(self) -> Path | None:
+        """Resolve configuration file path for persisting slash command updates.
+
+        Checks workspace `.neuri/neuri.toml` and `.neuri/config.toml` first.
+        Only falls back to `~/.neuri/config.toml` when the workspace is not
+        inside a temporary test directory (`/tmp`, `/var/folders`).
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Path | None: Path object or None
+                Target TOML file path for persisting configuration updates.
+        """
+        ws_dot: Path = self._workspace_dir / ".neuri"
+        if (ws_dot / "neuri.toml").is_file():
+            return ws_dot / "neuri.toml"
+        if (ws_dot / "config.toml").is_file():
+            return ws_dot / "config.toml"
+        if ws_dot.is_dir():
+            return ws_dot / "neuri.toml"
+
+        ws_str: str = str(self._workspace_dir.resolve())
+        if (
+            ws_str.startswith("/private/var/folders/")
+            or ws_str.startswith("/var/folders/")
+            or ws_str.startswith("/tmp/")
+            or ws_str.startswith("/private/tmp/")
+            or "pytest-of-" in ws_str
+        ):
+            return None
+
+        home_cfg: Path = Path.home() / ".neuri" / "config.toml"
+        return home_cfg
+
+    def _persist_harness_and_model(
+        self, harness_id: str, model_id: str | None
+    ) -> None:
+        """Persist active harness and model to the resolved config TOML file.
+
+        Parameters
+        ------------
+        harness_id: str
+            Active canonical harness ID.
+        model_id: str | None
+            Active model ID or None to clear model overrides.
+
+        Returns
+        --------
+            None: NoneType object
+                Writes updated harness and model to disk if a config file exists.
+        """
+        cfg_path: Path | None = self._resolve_target_config_path()
+        if cfg_path is None or not cfg_path.is_file():
+            return
+
+        try:
+            import tomllib
+            import tomli_w
+
+            raw_cfg: dict[str, Any] = tomllib.loads(
+                cfg_path.read_text(encoding="utf-8")
+            )
+            if "project" not in raw_cfg or not isinstance(
+                raw_cfg["project"], dict
+            ):
+                raw_cfg["project"] = {}
+            raw_cfg["project"]["default_harness"] = harness_id
+            if model_id is not None:
+                raw_cfg["project"]["default_model"] = model_id
+            elif "default_model" in raw_cfg["project"]:
+                del raw_cfg["project"]["default_model"]
+
+            if "harness_routing" not in raw_cfg or not isinstance(
+                raw_cfg["harness_routing"], dict
+            ):
+                raw_cfg["harness_routing"] = {}
+            for r_name in self._config.harness_routing:
+                r_ent: dict[str, Any] = {"harness": harness_id}
+                if model_id is not None:
+                    r_ent["model"] = model_id
+                raw_cfg["harness_routing"][r_name] = r_ent
+
+            cfg_path.write_text(tomli_w.dumps(raw_cfg), encoding="utf-8")
+        except Exception:
+            pass
+
     def _handle_harness(self, args: list[str]) -> SlashCommandResult:
-        """Display or update role-to-harness routing configuration.
+        """Display or update AI harness configuration uniformly across all roles.
 
         Parameters
         ------------
         args: list[str]
-            Optional [role, harness_id] pair to update.
+            Optional [harness_id], [harness_id, model], or [role, harness_id, model].
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
-                Routing table or confirmation card.
+                Status overview or update confirmation card.
         """
-        routing_map: dict[str, str] = {}
-        harness_default: str = "antigravity"
+        known_harnesses: set[str] = {
+            "agy",
+            "antigravity",
+            "codex",
+            "opencode",
+            "openclaw",
+            "ollama",
+            "ollama_local",
+        }
 
-        if isinstance(self._config.harness_routing, dict):
-            for role_name, r_cfg in self._config.harness_routing.items():
-                target_h = getattr(r_cfg, "harness", str(r_cfg))
-                routing_map[role_name] = target_h
-            if "pipeline_engineer" in routing_map:
-                harness_default = routing_map["pipeline_engineer"]
-        elif hasattr(self._config.harness_routing, "role_map"):
-            routing_map = dict(getattr(self._config.harness_routing, "role_map"))
-            harness_default = getattr(
-                self._config.harness_routing, "default_harness", "antigravity"
-            )
+        if args:
+            target_h: str = "agy"
+            chosen_model: str | None = None
+            if len(args) == 1:
+                target_h = args[0].strip().lower()
+            elif len(args) == 2:
+                t0: str = args[0].strip().lower()
+                t1: str = args[1].strip().lower()
+                if t0 in known_harnesses:
+                    target_h = t0
+                    chosen_model = args[1].strip()
+                elif t1 in known_harnesses:
+                    target_h = t1
+                    chosen_model = None
+                else:
+                    target_h = t0
+                    chosen_model = args[1].strip()
+            else:
+                t0 = args[0].strip().lower()
+                t1 = args[1].strip().lower()
+                if t1 in known_harnesses:
+                    target_h = t1
+                    chosen_model = args[2].strip()
+                else:
+                    target_h = t0
+                    chosen_model = args[1].strip()
 
-        if len(args) >= 2:
-            role: str = args[0].strip()
-            h_id: str = args[1].strip()
-            if isinstance(self._config.harness_routing, dict):
-                from neuri.core.config import HarnessRoutingConfig
+            if target_h == "antigravity":
+                target_h = "agy"
+            elif target_h == "ollama_local":
+                target_h = "ollama"
 
-                self._config.harness_routing[role] = HarnessRoutingConfig(
-                    harness=h_id,
-                    execution_mode="interactive_pty",
+            try:
+                avail_models: list[str] = (
+                    self._orchestrator.registry.get_models_for_harness(
+                        target_h
+                    )
                 )
-                routing_map[role] = h_id
-            elif hasattr(self._config.harness_routing, "role_map"):
-                self._config.harness_routing.role_map[role] = h_id
-                routing_map[role] = h_id
+            except Exception:
+                avail_models = []
 
-            cfg_path: Path = (
-                self._workspace_dir / ".neuri" / "config.toml"
-                if (self._workspace_dir / ".neuri" / "config.toml").is_file()
-                else Path.home() / ".neuri" / "config.toml"
+            if chosen_model is not None:
+                if avail_models and chosen_model not in avail_models:
+                    valid_list: str = ", ".join(f"`{m}`" for m in avail_models)
+                    err_md: str = (
+                        f"Model `{chosen_model}` is not available on harness "
+                        f"`{target_h}`.\n\n"
+                        f"**Available models on `{target_h}`:** {valid_list}"
+                    )
+                    return SlashCommandResult(
+                        command="/harness",
+                        success=False,
+                        markdown_output=err_md,
+                        data={
+                            "harness": target_h,
+                            "requested_model": chosen_model,
+                            "available_models": avail_models,
+                        },
+                    )
+            else:
+                chosen_model = avail_models[0] if avail_models else None
+
+            self._config.project.default_harness = target_h
+            self._config.project.default_model = chosen_model
+
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.harness = target_h
+                    r_cfg.model = chosen_model
+
+            self._persist_harness_and_model(target_h, chosen_model)
+
+            model_note: str = (
+                f" with model `{chosen_model}`" if chosen_model else ""
             )
-            if cfg_path.is_file():
-                try:
-                    import tomllib
-                    import tomli_w
-
-                    raw_cfg: dict[str, Any] = tomllib.loads(
-                        cfg_path.read_text(encoding="utf-8")
-                    )
-                    if "harness_routing" not in raw_cfg:
-                        raw_cfg["harness_routing"] = {}
-                    raw_cfg["harness_routing"][role] = {"harness": h_id}
-                    cfg_path.write_text(
-                        tomli_w.dumps(raw_cfg), encoding="utf-8"
-                    )
-                except Exception:
-                    pass
-
             msg: str = (
-                f"Updated harness routing: Sub-agent role `{role}` is now "
-                f"dispatched to harness `{h_id}`."
+                f"Updated harness routing: All roles set to "
+                f"`{target_h}`{model_note}."
             )
             return SlashCommandResult(
                 command="/harness",
                 success=True,
                 markdown_output=msg,
-                data={"role": role, "harness_id": h_id},
+                data={
+                    "harness": target_h,
+                    "model": chosen_model,
+                },
             )
 
-        lines: list[str] = [
-            "### Harness Routing Map\n",
-            f"**Default Harness:** `{harness_default}`\n",
-            "| Agent Role | Target Harness |",
-            "| :--- | :--- |",
-        ]
-        for r, h in routing_map.items():
-            lines.append(f"| `{r}` | `{h}` |")
+        active_harness: str = getattr(
+            self._config.project, "default_harness", "agy"
+        )
+        active_model: str | None = self._orchestrator.resolve_active_model(
+            active_harness
+        )
+        model_str: str = active_model if active_model else "(vendor default)"
+        try:
+            harness_models: list[str] = (
+                self._orchestrator.registry.get_models_for_harness(
+                    active_harness
+                )
+            )
+        except Exception:
+            harness_models = []
 
+        lines: list[str] = [
+            "### AI Harness Configuration (Harness Routing Map)\n",
+            f"- **Active Harness:** `{active_harness}`",
+            f"- **Active Model:** `{model_str}`",
+            (
+                "- **All Roles Synchronized:** `coordinator`, `pipeline_engineer`, "
+                "`neuroimaging_specialist`, `critic_qa`\n"
+            ),
+        ]
+        if harness_models:
+            lines.append(
+                f"**Available Models on `{active_harness}` "
+                f"({len(harness_models)}):**"
+            )
+            for m_item in harness_models:
+                marker: str = " *(active)*" if m_item == active_model else ""
+                lines.append(f"- `{m_item}`{marker}")
+            lines.append("")
+
+        lines.extend(
+            [
+                "**Commands:**",
+                "- `/harness <name>`: Switch active harness across all roles",
+                "- `/harness <name> <model>`: Switch harness and model together",
+                "- `/model <name>`: Switch active model across all roles",
+                "- `/model list`: Show live models directly from harnesses",
+            ]
+        )
         return SlashCommandResult(
             command="/harness",
             success=True,
             markdown_output="\n".join(lines),
-            data=dict(routing_map),
+            data={
+                "harness": active_harness,
+                "model": active_model,
+                "available_models": harness_models,
+            },
         )
+
+    def _handle_model(self, args: list[str]) -> SlashCommandResult:
+        """Display, list, or update AI model configuration across all roles.
+
+        Parameters
+        ------------
+        args: list[str]
+            Optional [model_name], [role, model_name], ['reset'], or ['list'].
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Model catalog, status table, or update confirmation.
+        """
+        active_harness: str = getattr(
+            self._config.project, "default_harness", "agy"
+        )
+
+        # 1. /model list: Query live models directly from underlying harnesses
+        if args and args[0].lower() in ("list", "ls"):
+            live_models: dict[str, list[str]] = (
+                self._orchestrator.registry.list_all_models()
+            )
+            catalog_lines: list[str] = [
+                "### Live Available Models Directly from Harnesses\n",
+            ]
+            if not live_models:
+                catalog_lines.append(
+                    "No models could be discovered from installed harnesses. "
+                    "Ensure harness binaries (agy, ollama, codex) are installed."
+                )
+            else:
+                for h_id, m_list in sorted(live_models.items()):
+                    active_tag: str = (
+                        " [ACTIVE HARNESS]" if h_id == active_harness else ""
+                    )
+                    catalog_lines.append(
+                        f"#### Harness `{h_id}`{active_tag} "
+                        f"({len(m_list)} models)"
+                    )
+                    for m in m_list:
+                        is_curr: bool = (
+                            h_id == active_harness
+                            and m == self._config.project.default_model
+                        )
+                        curr_tag: str = " *(active)*" if is_curr else ""
+                        catalog_lines.append(f"- `{m}`{curr_tag}")
+                    catalog_lines.append("")
+
+            catalog_lines.extend(
+                [
+                    "**Commands:**",
+                    "- `/model <name>`: Switch default model for active harness",
+                    "- `/model <role> <name>`: Set model for specific specialist",
+                    "- `/model reset`: Restore harness default model",
+                ]
+            )
+            result_list: SlashCommandResult = SlashCommandResult(
+                command="/model",
+                success=True,
+                markdown_output="\n".join(catalog_lines),
+                data=live_models,
+            )
+            return result_list
+
+        try:
+            avail_for_active: list[str] = (
+                self._orchestrator.registry.get_models_for_harness(
+                    active_harness
+                )
+            )
+        except Exception:
+            avail_for_active = []
+
+        # 2. /model reset: Restore to active harness default model
+        if args and args[0].lower() == "reset":
+            restored_model: str | None = (
+                avail_for_active[0] if avail_for_active else None
+            )
+            self._config.project.default_model = restored_model
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.model = restored_model
+            self._persist_harness_and_model(active_harness, None)
+            reset_result: SlashCommandResult = SlashCommandResult(
+                command="/model",
+                success=True,
+                markdown_output="Restored all harnesses to default models.",
+                data={"default_model": restored_model},
+            )
+            return reset_result
+
+        # 3. /model <role> <model_name> or /model <harness> <model_name>
+        if len(args) >= 2:
+            role_target: str = args[0].strip()
+            chosen_model_val: str = args[1].strip()
+
+            if avail_for_active and chosen_model_val not in avail_for_active:
+                valid_str: str = ", ".join(f"`{m}`" for m in avail_for_active)
+                return SlashCommandResult(
+                    command="/model",
+                    success=False,
+                    markdown_output=(
+                        f"Model `{chosen_model_val}` is not available on "
+                        f"active harness `{active_harness}`.\n\n"
+                        f"**Available models on `{active_harness}`:** "
+                        f"{valid_str}"
+                    ),
+                    data={
+                        "harness": active_harness,
+                        "requested_model": chosen_model_val,
+                        "available_models": avail_for_active,
+                    },
+                )
+
+            self._config.project.default_model = chosen_model_val
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg_item in self._config.harness_routing.values():
+                    r_cfg_item.model = chosen_model_val
+
+            self._persist_harness_and_model(active_harness, chosen_model_val)
+
+            role_result: SlashCommandResult = SlashCommandResult(
+                command="/model",
+                success=True,
+                markdown_output=(
+                    f"Updated model: Set `{role_target}` to `{chosen_model_val}` "
+                    f"(applied across all roles in uniform mode)."
+                ),
+                data={"role": role_target, "model": chosen_model_val},
+            )
+            return role_result
+
+        # 4. /model <model_name>: Set global default model across all roles
+        if len(args) == 1:
+            chosen_default: str = args[0].strip()
+            if avail_for_active and chosen_default not in avail_for_active:
+                valid_str_single: str = ", ".join(
+                    f"`{m}`" for m in avail_for_active
+                )
+                return SlashCommandResult(
+                    command="/model",
+                    success=False,
+                    markdown_output=(
+                        f"Model `{chosen_default}` is not available on "
+                        f"active harness `{active_harness}`.\n\n"
+                        f"**Available models on `{active_harness}`:** "
+                        f"{valid_str_single}"
+                    ),
+                    data={
+                        "harness": active_harness,
+                        "requested_model": chosen_default,
+                        "available_models": avail_for_active,
+                    },
+                )
+
+            self._config.project.default_model = chosen_default
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg_item in self._config.harness_routing.values():
+                    r_cfg_item.model = chosen_default
+
+            self._persist_harness_and_model(active_harness, chosen_default)
+
+            def_result: SlashCommandResult = SlashCommandResult(
+                command="/model",
+                success=True,
+                markdown_output=(
+                    f"Updated global default model to `{chosen_default}` across "
+                    f"all connected harnesses."
+                ),
+                data={"default_model": chosen_default},
+            )
+            return def_result
+
+        # 5. /model (no arguments): Display active model status and live models
+        resolved_active: str | None = self._orchestrator.resolve_active_model(
+            active_harness
+        )
+        active_default: str = (
+            resolved_active if resolved_active else "(harness default)"
+        )
+        status_lines: list[str] = [
+            "### AI Model Configuration\n",
+            f"- **Active Harness:** `{active_harness}`",
+            f"- **Active Model:** `{active_default}`",
+            (
+                "- **All Roles Synchronized:** `coordinator`, `pipeline_engineer`, "
+                "`neuroimaging_specialist`, `critic_qa`\n"
+            ),
+        ]
+        if avail_for_active:
+            status_lines.append(
+                f"**Available Models on `{active_harness}` "
+                f"({len(avail_for_active)}):**"
+            )
+            for m_item in avail_for_active:
+                marker_m: str = (
+                    " *(active)*" if m_item == resolved_active else ""
+                )
+                status_lines.append(f"- `{m_item}`{marker_m}")
+            status_lines.append("")
+
+        status_lines.extend(
+            [
+                "**Commands:**",
+                "- `/model list`: Browse live models directly from harnesses",
+                "- `/model <name>`: Switch active model across all roles",
+                "- `/model reset`: Restore vendor defaults",
+            ]
+        )
+
+        table_result: SlashCommandResult = SlashCommandResult(
+            command="/model",
+            success=True,
+            markdown_output="\n".join(status_lines),
+            data={
+                "default_model": resolved_active,
+                "harness": active_harness,
+                "available_models": avail_for_active,
+            },
+        )
+        return table_result
 
     def _run_sync_coroutine(self, coro: Coroutine[Any, Any, Any]) -> Any:
         """Execute an asynchronous coroutine synchronously.
@@ -1233,13 +1625,14 @@ class SlashCommandRouter:
         rows: list[str] = [
             f"### Planned Research DAG: `{wf_id}`\n",
             f"**Instruction:** {prompt}\n",
-            "| Step | Node ID | Specialist Role | Harness | State |",
-            "| :--- | :--- | :--- | :--- | :--- |",
+            "| Step | Node ID | Specialist Role | Harness | Model | State |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
         ]
         for idx, node in enumerate(nodes, start=1):
+            node_model: str = node.model if node.model else "default"
             rows.append(
                 f"| {idx} | `{node.node_id}` | `{node.agent_role}` | "
-                f"`{node.harness_id}` | `○ {node.state.value}` |"
+                f"`{node.harness_id}` | `{node_model}` | `○ {node.state.value}` |"
             )
 
         rows.append(
@@ -2391,6 +2784,7 @@ class SlashCommandRouter:
             "| `/plan <prompt>` | Preview DAG decomposition without auto-executing |\n"
             "| `/run [id]` | Execute a planned or pending research DAG |\n"
             "| `/harness` | View or update agent role-to-harness routing |\n"
+            "| `/model [name]` | View, list, or switch active AI models |\n"
             "| `/remote` | View, bootstrap, or remove remote compute hosts |\n"
             "| `/jobs` | Monitor or reconcile Slurm/tmux batch jobs |\n"
             "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"

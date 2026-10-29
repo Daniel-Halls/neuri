@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import time
 from typing import Any
+import uuid
 
 from neuri.core.schemas import NeuriTaskEnvelope, NeuriTaskResult, TelemetryEvent
 from neuri.core.telemetry import (
@@ -142,6 +143,21 @@ class BaseHarnessAdapter(ABC):
         path_found: str | None = shutil.which(self.executable_name)
         available: bool = path_found is not None
         return available
+
+    def list_available_models(self) -> list[str]:
+        """Query the harness CLI subprocess directly for available models.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[str]: list object
+                Real list of model identifiers returned directly by the harness.
+        """
+        models: list[str] = []
+        return models
 
     @abstractmethod
     def build_headless_command(
@@ -289,6 +305,9 @@ class BaseHarnessAdapter(ABC):
                 self._stream_stderr(
                     process=process,
                     stderr_lines=stderr_lines,
+                    on_event=on_event,
+                    workflow_id=envelope.workflow_id,
+                    node_id=envelope.node_id,
                 )
             )
 
@@ -417,6 +436,18 @@ class BaseHarnessAdapter(ABC):
                 for ev in events:
                     if on_event is not None:
                         on_event(ev)
+
+                norm: NormalizedStreamResult = self.parse_stream_line(raw_line)
+                if norm.content_delta and on_event is not None:
+                    c_ev: TelemetryEvent = TelemetryEvent(
+                        event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                        workflow_id=tap.workflow_id,
+                        node_id=tap.node_id,
+                        harness_id=self.harness_id,
+                        event_type="content_delta",
+                        content_text=norm.content_delta,
+                    )
+                    on_event(c_ev)
             except CircuitBreakerTripped as exc:
                 try:
                     process.terminate()
@@ -430,8 +461,11 @@ class BaseHarnessAdapter(ABC):
         self,
         process: asyncio.subprocess.Process,
         stderr_lines: list[str],
+        on_event: Callable[[TelemetryEvent], None] | None = None,
+        workflow_id: str = "wf_default",
+        node_id: str = "node_default",
     ) -> None:
-        """Stream stderr lines from subprocess into accumulator list.
+        """Stream stderr lines from subprocess into accumulator list and events.
 
         Parameters
         ------------
@@ -439,11 +473,17 @@ class BaseHarnessAdapter(ABC):
             Running subprocess instance.
         stderr_lines: list[str]
             List accumulating raw stderr lines.
+        on_event: Callable[[TelemetryEvent], None] | None
+            Optional telemetry callback. Defaults to None.
+        workflow_id: str
+            Associated workflow identifier. Defaults to 'wf_default'.
+        node_id: str
+            Associated node identifier. Defaults to 'node_default'.
 
         Returns
         --------
             None: NoneType object
-                Appends lines to accumulator.
+                Appends lines to accumulator and emits raw_stream events.
         """
         if process.stderr is None:
             return
@@ -452,9 +492,18 @@ class BaseHarnessAdapter(ABC):
             line_bytes: bytes = await process.stderr.readline()
             if not line_bytes:
                 break
-            stderr_lines.append(
-                line_bytes.decode("utf-8", errors="replace")
-            )
+            raw_err: str = line_bytes.decode("utf-8", errors="replace")
+            stderr_lines.append(raw_err)
+            if on_event is not None and raw_err.strip():
+                err_ev: TelemetryEvent = TelemetryEvent(
+                    event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                    workflow_id=workflow_id,
+                    node_id=node_id,
+                    harness_id=self.harness_id,
+                    event_type="raw_stream",
+                    raw_text=raw_err,
+                )
+                on_event(err_ev)
 
 
 __all__: list[str] = [

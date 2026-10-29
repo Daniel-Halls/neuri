@@ -1,7 +1,7 @@
 """Google Antigravity (agy) agent harness adapter for Neuri.
 
 Wraps the Antigravity CLI (agy) for headless streaming NDJSON execution
-(--output-format stream-json --mode auto -p) and interactive terminal escalation
+(--output-format stream-json -p) and interactive terminal escalation
 (-i / --prompt-interactive).
 """
 
@@ -126,9 +126,9 @@ class AntigravityAdapter(BaseHarnessAdapter):
             full_prompt,
             "--output-format",
             "stream-json",
-            "--mode",
-            "auto",
         ]
+        if envelope.model:
+            cmd.extend(["--model", envelope.model])
 
         # Add skill directories if specified
         for skill_path in envelope.skill_paths:
@@ -157,6 +157,8 @@ class AntigravityAdapter(BaseHarnessAdapter):
             "-i",
             envelope.task_instruction,
         ]
+        if envelope.model:
+            cmd.extend(["--model", envelope.model])
         for skill_path in envelope.skill_paths:
             if Path(skill_path).is_dir():
                 cmd.extend(["--add-dir", skill_path])
@@ -179,6 +181,47 @@ class AntigravityAdapter(BaseHarnessAdapter):
             raw_line
         )
         return result
+
+    def list_available_models(self) -> list[str]:
+        """Query real available models directly from the Antigravity CLI.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[str]: list object
+                Models returned directly by the 'agy models' command.
+        """
+        import subprocess
+
+        models: list[str] = []
+        try:
+            res: subprocess.CompletedProcess[str] = subprocess.run(
+                [self.executable_name, "models"],
+                capture_output=True,
+                text=True,
+                timeout=15.0,
+            )
+            if res.returncode != 0:
+                return models
+            for raw_line in res.stdout.splitlines():
+                line: str = raw_line.strip()
+                if not line or "Fetching" in line:
+                    continue
+                tokens: list[str] = line.split()
+                if tokens:
+                    candidate: str = tokens[0]
+                    if (
+                        not candidate.startswith("-")
+                        and not candidate.startswith("=")
+                        and candidate not in models
+                    ):
+                        models.append(candidate)
+        except (subprocess.SubprocessError, OSError, TimeoutError):
+            pass
+        return models
 
 
 __all__: list[str] = [

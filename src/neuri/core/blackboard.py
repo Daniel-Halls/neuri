@@ -492,8 +492,11 @@ class Blackboard:
             TaskState.CANCELLED,
         },
         TaskState.RETRYING: {
+            TaskState.PENDING,
             TaskState.PREFLIGHT_CHECK,
             TaskState.RUNNING,
+            TaskState.WAITING_OPERATOR,
+            TaskState.FAILED,
             TaskState.CANCELLED,
         },
         TaskState.WAITING_OPERATOR: {

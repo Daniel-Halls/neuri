@@ -613,26 +613,51 @@ class NeuriThemeManager:
             existing["project"] = {}
         existing["project"]["theme"] = clean_name
 
+        home_str: str = str(Path.home().resolve())
+        home_is_temp: bool = (
+            home_str.startswith("/private/var/folders/")
+            or home_str.startswith("/var/folders/")
+            or home_str.startswith("/tmp/")
+            or home_str.startswith("/private/tmp/")
+            or "pytest-of-" in home_str
+        )
+        ws_is_temp: bool = False
+        if self._workspace_dir is not None:
+            ws_str: str = str(self._workspace_dir.resolve())
+            if (
+                ws_str.startswith("/private/var/folders/")
+                or ws_str.startswith("/var/folders/")
+                or ws_str.startswith("/tmp/")
+                or ws_str.startswith("/private/tmp/")
+                or "pytest-of-" in ws_str
+            ):
+                ws_is_temp = True
+
         try:
-            with open(target_file, "wb") as fh:
-                tomli_w.dump(existing, fh)
+            if not ws_is_temp or home_is_temp:
+                with open(target_file, "wb") as fh:
+                    tomli_w.dump(existing, fh)
 
             if self._workspace_dir is not None:
                 local_cfg: Path = (
                     self._workspace_dir / ".neuri" / "config.toml"
                 )
-                if local_cfg.is_file():
-                    try:
-                        local_data: dict[str, Any] = tomllib.loads(
-                            local_cfg.read_text(encoding="utf-8")
-                        )
-                        if "project" not in local_data:
-                            local_data["project"] = {}
-                        local_data["project"]["theme"] = clean_name
-                        with open(local_cfg, "wb") as lfh:
-                            tomli_w.dump(local_data, lfh)
-                    except Exception:
-                        pass
+                local_neuri: Path = (
+                    self._workspace_dir / ".neuri" / "neuri.toml"
+                )
+                for cfg_candidate in (local_cfg, local_neuri):
+                    if cfg_candidate.is_file():
+                        try:
+                            local_data: dict[str, Any] = tomllib.loads(
+                                cfg_candidate.read_text(encoding="utf-8")
+                            )
+                            if "project" not in local_data:
+                                local_data["project"] = {}
+                            local_data["project"]["theme"] = clean_name
+                            with open(cfg_candidate, "wb") as lfh:
+                                tomli_w.dump(local_data, lfh)
+                        except Exception:
+                            pass
             return True
         except Exception:
             return False

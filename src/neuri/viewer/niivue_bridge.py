@@ -119,10 +119,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
 
-    do_GET = handle_get
-    do_POST = handle_post
-
-    def do_OPTIONS(self) -> None:
+    def handle_options(self) -> None:
         """Handle CORS pre-flight requests from browser clients.
 
         Parameters
@@ -142,6 +139,10 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             "Range, Content-Type, Accept, Origin",
         )
         self.end_headers()
+
+    do_GET = handle_get
+    do_POST = handle_post
+    do_OPTIONS = handle_options
 
     def _handle_post_scene(self) -> None:
         """Handle incoming POST request to update active scene specification.
