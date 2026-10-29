@@ -58,7 +58,7 @@ dev = [
 neuri = "neuri.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/neuri"]
+packages = ["src/neuri", "src/neuri_worker"]
 
 [tool.ruff]
 line-length = 88

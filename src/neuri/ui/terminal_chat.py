@@ -12,7 +12,7 @@ Textual from the active Neuri theme, either in the CSS below or inside
 
 import asyncio
 import contextlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -217,6 +217,146 @@ class MessageCard(Static):
                         classes="thinking-text",
                     )
             yield Markdown(self._turn.content, classes="card-body")
+
+
+class LiveFeedbackCard(Static):
+    """Visual message card displaying real-time feedback from AI harness.
+
+    Parameters
+    ------------
+    node_id: str | None
+        Optional node identifier being executed. Defaults to None.
+
+    Returns
+    --------
+        LiveFeedbackCard: LiveFeedbackCard instance
+            Constructed live streaming widget card.
+    """
+
+    def __init__(self, node_id: str | None = None) -> None:
+        """Initialize live feedback card.
+
+        Parameters
+        ------------
+        node_id: str | None
+            Optional node ID. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes widget state.
+        """
+        super().__init__(classes="message-card message-card-assistant")
+        self._node_id: str | None = node_id
+        self._content_chunks: list[str] = []
+        self._thinking_chunks: list[str] = []
+        self._status_text: str = "Dispatching to harness..."
+
+    def compose(self) -> ComposeResult:
+        """Compose child widgets inside the live feedback card.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            ComposeResult: ComposeResult generator
+                Yields header, live status, reasoning drawer, and body widgets.
+        """
+        time_str: str = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        role_label: str = (
+            f"specialist · {self._node_id}"
+            if self._node_id
+            else "neuri"
+        )
+        yield Static(
+            card_header(
+                Glyphs.BRAND, f"{role_label} (live)", "$secondary", time_str
+            ),
+            classes="card-header",
+        )
+        yield Static(
+            f"[dim cyan]⚡ {self._status_text}[/dim cyan]",
+            id="live-status-line",
+        )
+        yield Static(
+            "",
+            id="live-thinking-content",
+            classes="thinking-text",
+        )
+        yield Static(
+            "",
+            id="live-body-content",
+            classes="card-body",
+        )
+
+    def set_status(self, text: str) -> None:
+        """Update live status message line.
+
+        Parameters
+        ------------
+        text: str
+            Status message string.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates status widget content.
+        """
+        self._status_text = text
+        try:
+            status_widget: Static = self.query_one(
+                "#live-status-line", Static
+            )
+            status_widget.update(f"[dim cyan]⚡ {text}[/dim cyan]")
+        except Exception:
+            pass
+
+    def append_thinking(self, delta: str) -> None:
+        """Append incremental reasoning delta to thinking drawer.
+
+        Parameters
+        ------------
+        delta: str
+            Incremental thinking text.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates thinking widget content.
+        """
+        self._thinking_chunks.append(delta)
+        try:
+            think_widget: Static = self.query_one(
+                "#live-thinking-content", Static
+            )
+            accumulated: str = "".join(self._thinking_chunks)
+            think_widget.update(f"[dim italic] {accumulated}[/dim italic]")
+        except Exception:
+            pass
+
+    def append_content(self, delta: str) -> None:
+        """Append incremental content delta to live response body.
+
+        Parameters
+        ------------
+        delta: str
+            Incremental text tokens.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates body widget content.
+        """
+        self._content_chunks.append(delta)
+        try:
+            body_widget: Static = self.query_one(
+                "#live-body-content", Static
+            )
+            body_widget.update("".join(self._content_chunks))
+        except Exception:
+            pass
 
 
 class ShellCommandCard(Static):
@@ -838,6 +978,7 @@ class SlashAutocompletePopup(Static):
         ("/notebooklm", "Google NotebookLM CLI integration and notebook queries"),
         ("/skills", "Browse Tier-0 neuroscience skills catalog"),
         ("/harness", "View or update agent role-to-harness routing"),
+        ("/model", "View, list, or change active AI model across harnesses"),
         ("/remote", "View, bootstrap, or remove remote compute hosts"),
         ("/machines", "Inspect attached compute nodes and load"),
         ("/jobs", "Monitor or reconcile Slurm/tmux batch jobs"),
@@ -1209,10 +1350,13 @@ class TelemetryBar(Static):
     cost_usd: reactive[float] = reactive(0.0)
     status_text: reactive[str] = reactive("Ready")
     machines_summary: reactive[str] = reactive("0 online")
+    harness_id: reactive[str] = reactive("agy")
+    model_id: reactive[str] = reactive("default")
 
     def __init__(
         self,
         harness_id: str = "agy",
+        model_id: str | None = None,
         theme: NeuriTheme | None = None,
     ) -> None:
         """Initialize telemetry status bar.
@@ -1221,6 +1365,8 @@ class TelemetryBar(Static):
         ------------
         harness_id: str
             Harness identifier string. Defaults to 'agy'.
+        model_id: str | None
+            Model identifier string or None. Defaults to None.
         theme: NeuriTheme | None
             Optional theme model override. Defaults to None.
 
@@ -1230,8 +1376,39 @@ class TelemetryBar(Static):
                 Initializes widget attributes.
         """
         super().__init__(id="telemetry-bar")
-        self._harness_id: str = harness_id
+        self.harness_id = harness_id
+        self.model_id = model_id if model_id else "default"
         self._custom_theme: NeuriTheme | None = theme
+
+    def set_harness_id(self, harness_id: str) -> None:
+        """Update active harness identifier displayed in status bar.
+
+        Parameters
+        ------------
+        harness_id: str
+            New harness ID to display.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates reactive harness property.
+        """
+        self.harness_id = harness_id
+
+    def set_model_id(self, model_id: str | None) -> None:
+        """Update active model identifier displayed in status bar.
+
+        Parameters
+        ------------
+        model_id: str | None
+            New model name or None to display default.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates reactive model property.
+        """
+        self.model_id = model_id if model_id else "default"
 
     def set_theme(self, theme: NeuriTheme) -> None:
         """Set an explicit theme override for telemetry bar rendering.
@@ -1309,7 +1486,10 @@ class TelemetryBar(Static):
         sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
         telemetry: Content = Content.assemble(
             ("Harness: ", label),
-            (self._harness_id, "$foreground"),
+            (self.harness_id, "$foreground"),
+            sep,
+            ("Model: ", label),
+            (self.model_id, "$foreground"),
             sep,
             ("Machines: ", label),
             (self.machines_summary, "$foreground"),
@@ -1556,6 +1736,8 @@ class NeuriChatApp(App[None]):
         self,
         workspace_dir: Path | None = None,
         session_engine: NeuriSessionEngine | None = None,
+        initial_model: str | None = None,
+        initial_harness: str | None = None,
     ) -> None:
         """Initialize Neuri Textual chat application.
 
@@ -1565,6 +1747,10 @@ class NeuriChatApp(App[None]):
             Workspace directory. Defaults to None (cwd).
         session_engine: NeuriSessionEngine | None
             Session engine instance. Defaults to None.
+        initial_model: str | None
+            Initial AI model override across harnesses. Defaults to None.
+        initial_harness: str | None
+            Initial AI harness override across roles. Defaults to None.
 
         Returns
         --------
@@ -1581,11 +1767,19 @@ class NeuriChatApp(App[None]):
         self._engine: NeuriSessionEngine = (
             session_engine
             if session_engine is not None
-            else NeuriSessionEngine(workspace_dir=self._workspace_dir)
+            else NeuriSessionEngine(
+                workspace_dir=self._workspace_dir,
+                model=initial_model,
+                harness=initial_harness,
+            )
         )
-        self._harness_id: str = "agy"
+        self._harness_id: str = self._engine.harness
+        self._model_id: str = (
+            self._engine.model if self._engine.model else "default"
+        )
         self._telemetry_bar: TelemetryBar = TelemetryBar(
-            harness_id=self._harness_id
+            harness_id=self._engine.harness,
+            model_id=self._engine.model,
         )
         self._compute_sidebar: ComputeSidebar = ComputeSidebar()
         self._is_shell_mode: bool = False
@@ -1598,8 +1792,34 @@ class NeuriChatApp(App[None]):
         self._autocomplete_popup: SlashAutocompletePopup = (
             SlashAutocompletePopup()
         )
-        self._history_manager: PromptHistoryManager = PromptHistoryManager()
+        self._history_manager: PromptHistoryManager = PromptHistoryManager(
+            history_file=self._resolve_history_path()
+        )
+        self._current_live_card: LiveFeedbackCard | None = None
         self._engine.subscribe(self._handle_session_event)
+
+    def _resolve_history_path(self) -> Path | None:
+        """Resolve history file path, isolating temporary test workspaces.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Path | None: Path object or None
+                Custom history file path for temp workspaces, or None for default.
+        """
+        ws_str: str = str(self._workspace_dir.resolve())
+        if (
+            ws_str.startswith("/private/var/folders/")
+            or ws_str.startswith("/var/folders/")
+            or ws_str.startswith("/tmp/")
+            or ws_str.startswith("/private/tmp/")
+            or "pytest-of-" in ws_str
+        ):
+            return self._workspace_dir / ".neuri" / "history"
+        return None
 
     def get_theme_variable_defaults(self) -> dict[str, str]:
         """Provide default custom theme variable tokens for Textual CSS.
@@ -1658,7 +1878,7 @@ class NeuriChatApp(App[None]):
         Returns
         --------
             Content: Content object
-                Brand, workspace, init state, and harness summary.
+                Brand, workspace, init state, harness, and active model summary.
         """
         is_init: bool = (self._workspace_dir / ".neuri").is_dir()
         state_part: tuple[str, str] = (
@@ -1667,6 +1887,12 @@ class NeuriChatApp(App[None]):
             else (f"{Glyphs.DOT_OFF} uninitialized (/init)", "$warning")
         )
         sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
+        active_h: str = self._engine.harness
+        active_m: str = (
+            self._engine.model if self._engine.model else "default"
+        )
+        self._harness_id = active_h
+        self._model_id = active_m
         banner: Content = Content.assemble(
             ("neuri", "bold $foreground"),
             (f" {Glyphs.PROMPT} ", "$muted"),
@@ -1677,9 +1903,33 @@ class NeuriChatApp(App[None]):
             state_part,
             sep,
             ("harness ", "$muted"),
-            (self._harness_id, "$accent"),
+            (active_h, "$accent"),
+            (" · model ", "$muted"),
+            (active_m, "$secondary"),
         )
         return banner
+
+    def _sync_harness_and_model_ui(self) -> None:
+        """Synchronize header banner and telemetry bar with active harness/model.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Updates header banner and bottom telemetry bar widgets.
+        """
+        self._harness_id = self._engine.harness
+        self._model_id = (
+            self._engine.model if self._engine.model else "default"
+        )
+        self._telemetry_bar.harness_id = self._harness_id
+        self._telemetry_bar.model_id = self._model_id
+        with contextlib.suppress(Exception):
+            banner: Static = self.query_one("#workspace-banner", Static)
+            banner.update(self._banner_content())
 
     def compose(self) -> ComposeResult:
         """Compose layout widgets for the interactive chat interface.
@@ -2163,11 +2413,24 @@ class NeuriChatApp(App[None]):
         await scroll_area.mount(MessageCard(user_turn))
         scroll_area.scroll_end(animate=False)
 
+        live_card: LiveFeedbackCard | None = None
+        if not val.startswith("/") and not is_quick_shell and not self._is_shell_mode:
+            live_card = LiveFeedbackCard()
+            await scroll_area.mount(live_card)
+            scroll_area.scroll_end(animate=False)
+            self._current_live_card = live_card
+
         try:
             assistant_turn: ChatTurn = await self._engine.submit_user_input(val)
+            if live_card is not None:
+                await live_card.remove()
+                self._current_live_card = None
             await scroll_area.mount(MessageCard(assistant_turn))
             scroll_area.scroll_end(animate=False)
         except Exception as exc:
+            if live_card is not None:
+                await live_card.remove()
+                self._current_live_card = None
             err_turn: ChatTurn = ChatTurn(
                 turn_id=f"err_{int(datetime.now(UTC).timestamp())}",
                 role=ChatRole.ASSISTANT,
@@ -2176,9 +2439,11 @@ class NeuriChatApp(App[None]):
             await scroll_area.mount(MessageCard(err_turn))
             scroll_area.scroll_end(animate=False)
         finally:
+            self._current_live_card = None
             input_widget.disabled = False
             input_widget.focus()
             self._telemetry_bar.status_text = "Ready"
+            self._sync_harness_and_model_ui()
 
     def _handle_session_event(self, ev: SessionEvent) -> None:
         """Handle incoming SessionEvent from session engine.
@@ -2194,6 +2459,9 @@ class NeuriChatApp(App[None]):
                 Updates telemetry footer and triggers UI actions.
         """
         if ev.event_type == SessionEventType.STATUS_UPDATE:
+            cmd_name: Any = ev.payload.get("command")
+            if cmd_name in ("/harness", "/model", "/models"):
+                self._sync_harness_and_model_ui()
             action: Any = ev.payload.get("action")
             if action == "clear_chat":
                 self.action_clear_screen()
@@ -2209,17 +2477,61 @@ class NeuriChatApp(App[None]):
                 )
                 self.apply_theme(thm_name)
             elif action == "reload_config":
-                banner: Static = self.query_one("#workspace-banner", Static)
-                banner.update(self._banner_content())
+                self._sync_harness_and_model_ui()
                 self._refresh_welcome_cards()
             elif action == "token_increment":
                 toks_inc: int = int(ev.payload.get("tokens", 0))
                 cost_inc: float = float(ev.payload.get("cost_usd", 0.0))
                 self._telemetry_bar.tokens_count += toks_inc
                 self._telemetry_bar.cost_usd += cost_inc
+            elif action == "raw_stream":
+                raw_text: str = str(ev.payload.get("raw_text", "")).strip()
+                if raw_text and self._current_live_card is not None:
+                    self._current_live_card.set_status(raw_text)
 
         elif ev.event_type == SessionEventType.THINKING_CHUNK:
             self._telemetry_bar.status_text = "Reasoning..."
+            delta: str = str(ev.payload.get("thinking_delta", ""))
+            if self._current_live_card is not None and delta:
+                self._current_live_card.append_thinking(delta)
+                try:
+                    scroll_area: VerticalScroll = self.query_one(
+                        "#chat-scroll", VerticalScroll
+                    )
+                    scroll_area.scroll_end(animate=False)
+                except Exception:
+                    pass
+
+        elif ev.event_type == SessionEventType.ASSISTANT_CHUNK:
+            self._telemetry_bar.status_text = "Generating response..."
+            c_delta: str = str(ev.payload.get("content_delta", ""))
+            if self._current_live_card is not None and c_delta:
+                self._current_live_card.append_content(c_delta)
+                try:
+                    scroll_area = self.query_one(
+                        "#chat-scroll", VerticalScroll
+                    )
+                    scroll_area.scroll_end(animate=False)
+                except Exception:
+                    pass
+
+        elif ev.event_type == SessionEventType.TOOL_CALL_UPDATE:
+            tool_name: str = str(ev.payload.get("tool_name", "unknown"))
+            tool_status: str = str(ev.payload.get("tool_status", ""))
+            host: str = str(ev.payload.get("tool_host", "localhost"))
+            dur: Any = ev.payload.get("duration_ms")
+            dur_str: str = f" ({dur}ms)" if dur is not None else ""
+            msg: str = f"Tool {tool_name} [{tool_status}]{dur_str} on {host}"
+            self._telemetry_bar.status_text = msg
+            if self._current_live_card is not None:
+                self._current_live_card.set_status(msg)
+                try:
+                    scroll_area = self.query_one(
+                        "#chat-scroll", VerticalScroll
+                    )
+                    scroll_area.scroll_end(animate=False)
+                except Exception:
+                    pass
 
         elif ev.event_type == SessionEventType.CIRCUIT_BREAKER_TRIGGERED:
             self._telemetry_bar.status_text = "Circuit Breaker Tripped"
@@ -2252,6 +2564,7 @@ class NeuriChatApp(App[None]):
 
 __all__: list[str] = [
     "ComputeSidebar",
+    "LiveFeedbackCard",
     "MachineSelectorBar",
     "MessageCard",
     "NeuriChatApp",

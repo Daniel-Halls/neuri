@@ -59,6 +59,12 @@ class WorkspaceConfig(BaseModel):
         'localhost'.
     remote_bids_root: str | None
         Remote root URI for BIDS dataset. Defaults to None.
+    theme: str
+        Active terminal color theme name. Defaults to 'high_contrast'.
+    default_harness: str
+        Default AI harness applied across all roles. Defaults to 'agy'.
+    default_model: str | None
+        Default AI model name applied across harnesses. Defaults to None.
 
     Returns
     --------
@@ -81,6 +87,14 @@ class WorkspaceConfig(BaseModel):
     theme: str = Field(
         default="high_contrast",
         description="Active terminal color theme name (e.g. 'high_contrast', 'dark')",
+    )
+    default_harness: str = Field(
+        default="agy",
+        description="Default AI harness applied across all roles",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default AI model name applied across harnesses",
     )
 
 
@@ -115,6 +129,9 @@ class HarnessRoutingConfig(BaseModel):
     mode: str
         Execution mode: headless_json or interactive_pty.
         Defaults to 'headless_json'.
+    model: str | None
+        Specific model identifier dynamically discovered from the harness.
+        Defaults to None.
 
     Returns
     --------
@@ -129,6 +146,10 @@ class HarnessRoutingConfig(BaseModel):
     mode: str = Field(
         default="headless_json",
         description="Execution mode: headless_json or interactive_pty",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Specific model identifier for this role",
     )
 
     @field_validator("mode")
@@ -426,6 +447,54 @@ class NeuriConfig(BaseModel):
                 normalized["project"] = {}
             normalized["project"]["theme"] = normalized["theme"]
 
+        # Handle top-level harness or default_harness
+        if "default_harness" in normalized:
+            if "project" not in normalized or not isinstance(
+                normalized["project"], dict
+            ):
+                normalized["project"] = {}
+            normalized["project"]["default_harness"] = normalized[
+                "default_harness"
+            ]
+        elif "harness" in normalized:
+            if "project" not in normalized or not isinstance(
+                normalized["project"], dict
+            ):
+                normalized["project"] = {}
+            normalized["project"]["default_harness"] = normalized["harness"]
+
+        # Handle top-level model or default_model
+        if "default_model" in normalized:
+            if "project" not in normalized or not isinstance(
+                normalized["project"], dict
+            ):
+                normalized["project"] = {}
+            normalized["project"]["default_model"] = normalized["default_model"]
+        elif "model" in normalized:
+            if "project" not in normalized or not isinstance(
+                normalized["project"], dict
+            ):
+                normalized["project"] = {}
+            normalized["project"]["default_model"] = normalized["model"]
+
+        # Resolve uniform active harness & model across all roles
+        active_h: str = "agy"
+        if (
+            "project" in normalized
+            and isinstance(normalized["project"], dict)
+            and "default_harness" in normalized["project"]
+        ):
+            raw_h: str = str(normalized["project"]["default_harness"])
+            active_h = "agy" if raw_h == "antigravity" else raw_h
+
+        active_m: str | None = None
+        if (
+            "project" in normalized
+            and isinstance(normalized["project"], dict)
+            and "default_model" in normalized["project"]
+        ):
+            active_m = normalized["project"]["default_model"]
+
         # Handle [harnesses.routing] nested table or [harnesses_routing]
         if "harnesses" in normalized and isinstance(normalized["harnesses"], dict):
             if "routing" in normalized["harnesses"]:
@@ -433,22 +502,41 @@ class NeuriConfig(BaseModel):
         elif "harnesses_routing" in normalized and "harness_routing" not in normalized:
             normalized["harness_routing"] = normalized["harnesses_routing"]
 
-        default_roles: dict[str, dict[str, str]] = {
-            "coordinator": {"harness": "agy", "mode": "headless_json"},
-            "pipeline_engineer": {"harness": "codex", "mode": "headless_json"},
-            "neuroimaging_specialist": {"harness": "agy", "mode": "headless_json"},
-            "electrophys_specialist": {"harness": "agy", "mode": "headless_json"},
-            "compute_operator": {"harness": "codex", "mode": "headless_json"},
-            "critic_qa": {"harness": "agy", "mode": "headless_json"},
-            "scientific_writer": {"harness": "agy", "mode": "headless_json"},
+        default_roles: dict[str, dict[str, Any]] = {
+            role_key: {
+                "harness": active_h,
+                "mode": "headless_json",
+                "model": active_m,
+            }
+            for role_key in [
+                "coordinator",
+                "pipeline_engineer",
+                "neuroimaging_specialist",
+                "electrophys_specialist",
+                "compute_operator",
+                "critic_qa",
+                "scientific_writer",
+            ]
         }
 
-        # Populate default routing if missing or merge with partial roles
+        # Populate uniform routing across all roles
         if "harness_routing" not in normalized or not normalized["harness_routing"]:
             normalized["harness_routing"] = default_roles
         elif isinstance(normalized["harness_routing"], dict):
             merged_roles: dict[str, Any] = dict(default_roles)
-            merged_roles.update(normalized["harness_routing"])
+            for r_key, r_val in normalized["harness_routing"].items():
+                if isinstance(r_val, dict):
+                    merged_roles[r_key] = {
+                        "harness": r_val.get("harness", active_h),
+                        "mode": r_val.get("mode", "headless_json"),
+                        "model": r_val.get("model", active_m),
+                    }
+                else:
+                    merged_roles[r_key] = {
+                        "harness": active_h,
+                        "mode": "headless_json",
+                        "model": active_m,
+                    }
             normalized["harness_routing"] = merged_roles
 
         return normalized
@@ -614,7 +702,26 @@ class ConfigManager:
         """
         merged_dict: dict[str, Any] = {}
 
-        if self.global_config_path.exists():
+        proj_str: str = str(self.project_root.resolve())
+        global_str: str = str(self.global_config_path.resolve())
+        proj_is_temp: bool = (
+            proj_str.startswith("/private/var/folders/")
+            or proj_str.startswith("/var/folders/")
+            or proj_str.startswith("/tmp/")
+            or proj_str.startswith("/private/tmp/")
+            or "pytest-of-" in proj_str
+        )
+        global_is_temp: bool = (
+            global_str.startswith("/private/var/folders/")
+            or global_str.startswith("/var/folders/")
+            or global_str.startswith("/tmp/")
+            or global_str.startswith("/private/tmp/")
+            or "pytest-of-" in global_str
+        )
+
+        if self.global_config_path.exists() and (
+            not proj_is_temp or global_is_temp
+        ):
             try:
                 with open(self.global_config_path, "rb") as fh:
                     global_data: dict[str, Any] = tomllib.load(fh)
@@ -629,6 +736,17 @@ class ConfigManager:
                     f"Failed to read global config "
                     f"'{self.global_config_path}': {exc}"
                 ) from exc
+
+        alt_project_cfg: Path = (
+            self.project_root / self.PROJECT_DIR_NAME / "config.toml"
+        )
+        if alt_project_cfg.exists():
+            try:
+                with open(alt_project_cfg, "rb") as fh:
+                    alt_data: dict[str, Any] = tomllib.load(fh)
+                    merged_dict = deep_merge(merged_dict, alt_data)
+            except (tomllib.TOMLDecodeError, OSError):
+                pass
 
         if self.project_config_path.exists():
             try:

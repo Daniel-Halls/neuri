@@ -161,6 +161,7 @@ class BaseSpecialistAgent:
         input_artifacts: list[RemoteArtifact] | None = None,
         config: NeuriConfig | None = None,
         extra_context: str = "",
+        model: str | None = None,
     ) -> NeuriTaskEnvelope:
         """Construct a role-scoped NeuriTaskEnvelope for harness execution.
 
@@ -183,6 +184,8 @@ class BaseSpecialistAgent:
             Active configuration model. Defaults to None.
         extra_context: str
             Additional dynamic prompt context. Defaults to empty string.
+        model: str | None
+            Specific model identifier for harness execution. Defaults to None.
 
         Returns
         --------
@@ -227,6 +230,7 @@ class BaseSpecialistAgent:
             max_cost_usd=cost_budget,
             attempt_number=1,
             max_retries=retries_budget,
+            model=model,
         )
         return envelope
 

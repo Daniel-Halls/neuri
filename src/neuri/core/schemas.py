@@ -578,6 +578,8 @@ class NeuriTaskEnvelope(BaseModel):
         Maximum auto-retry attempts permitted. Defaults to 2.
     diagnostic_feedback: str | None
         Diagnostic feedback from previous failed attempt. Defaults to None.
+    model: str | None
+        Target AI model identifier for harness execution. Defaults to None.
 
     Returns
     --------
@@ -608,6 +610,10 @@ class NeuriTaskEnvelope(BaseModel):
     execution_mode: Literal["headless_json", "interactive_pty"] = Field(
         default="headless_json",
         description="Execution mode: headless_json or interactive_pty",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Target AI model identifier for harness execution",
     )
     system_prompt: str = Field(
         default="",
@@ -692,6 +698,10 @@ class NeuriTaskEnvelope(BaseModel):
                         f"({harness_val!r}) and 'harness_id' "
                         f"({normalized['harness_id']!r})."
                     )
+            if "model_name" in normalized and "model" not in normalized:
+                normalized["model"] = normalized.pop("model_name")
+            elif "model_id" in normalized and "model" not in normalized:
+                normalized["model"] = normalized.pop("model_id")
             result = normalized
         return result
 
@@ -964,6 +974,8 @@ class TaskNode(BaseModel):
         Specialist agent role assigned to this node.
     harness_id: str
         Execution harness identifier.
+    model: str | None
+        Target AI model identifier. Defaults to None.
     state: TaskState
         Current execution state. Defaults to TaskState.PENDING.
     attempt: int
@@ -1008,6 +1020,10 @@ class TaskNode(BaseModel):
     harness_id: str = Field(
         ...,
         description="Execution harness identifier, e.g. agy, codex",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Execution AI model identifier dynamically queried from harness",
     )
     state: TaskState = Field(
         default=TaskState.PENDING,
@@ -1090,6 +1106,10 @@ class TaskNode(BaseModel):
                         f"({harness_val!r}) and 'harness_id' "
                         f"({normalized['harness_id']!r})."
                     )
+            if "model_name" in normalized and "model" not in normalized:
+                normalized["model"] = normalized.pop("model_name")
+            elif "model_id" in normalized and "model" not in normalized:
+                normalized["model"] = normalized.pop("model_id")
             result = normalized
         return result
 
@@ -1263,13 +1283,19 @@ class TelemetryEvent(BaseModel):
         UTC timestamp of event creation. Defaults to current UTC time.
     event_type: Literal[
         "thinking_delta",
+        "content_delta",
         "token_usage",
         "tool_lifecycle",
         "circuit_breaker",
+        "raw_stream",
     ]
         Normalized event category.
     thinking_text: str | None
         Extracted reasoning text delta. Defaults to None.
+    content_text: str | None
+        Visible content delta text. Defaults to None.
+    raw_text: str | None
+        Raw output or log stream text. Defaults to None.
     input_tokens: int
         Cumulative input tokens. Defaults to 0.
     cached_tokens: int
@@ -1321,9 +1347,11 @@ class TelemetryEvent(BaseModel):
     )
     event_type: Literal[
         "thinking_delta",
+        "content_delta",
         "token_usage",
         "tool_lifecycle",
         "circuit_breaker",
+        "raw_stream",
     ] = Field(
         ...,
         description="Normalized event category",
@@ -1331,6 +1359,14 @@ class TelemetryEvent(BaseModel):
     thinking_text: str | None = Field(
         default=None,
         description="Extracted reasoning text delta",
+    )
+    content_text: str | None = Field(
+        default=None,
+        description="Visible content delta text",
+    )
+    raw_text: str | None = Field(
+        default=None,
+        description="Raw output or log stream text",
     )
     input_tokens: int = Field(
         default=0,

@@ -123,8 +123,10 @@ class CodexAdapter(BaseHarnessAdapter):
             self.executable_name,
             "exec",
             "--json",
-            full_prompt,
         ]
+        if envelope.model:
+            cmd.extend(["--model", envelope.model])
+        cmd.append(full_prompt)
         return cmd
 
     def build_interactive_command(
@@ -144,8 +146,10 @@ class CodexAdapter(BaseHarnessAdapter):
         """
         cmd: list[str] = [
             self.executable_name,
-            envelope.task_instruction,
         ]
+        if envelope.model:
+            cmd.extend(["--model", envelope.model])
+        cmd.append(envelope.task_instruction)
         return cmd
 
     def parse_stream_line(self, raw_line: str) -> NormalizedStreamResult:
@@ -165,6 +169,40 @@ class CodexAdapter(BaseHarnessAdapter):
             raw_line
         )
         return result
+
+    def list_available_models(self) -> list[str]:
+        """Query real available models directly from the Codex CLI.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[str]: list object
+                Models returned directly by the 'codex models' command.
+        """
+        import subprocess
+
+        models: list[str] = []
+        try:
+            res: subprocess.CompletedProcess[str] = subprocess.run(
+                [self.executable_name, "models"],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            if res.returncode != 0:
+                return models
+            for raw_line in res.stdout.splitlines():
+                line: str = raw_line.strip()
+                if line and not line.startswith("="):
+                    tokens: list[str] = line.split()
+                    if tokens:
+                        models.append(tokens[0])
+        except (subprocess.SubprocessError, OSError, TimeoutError):
+            pass
+        return models
 
 
 __all__: list[str] = [

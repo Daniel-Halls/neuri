@@ -257,6 +257,18 @@ class LocalFileExplorer:
             return []
 
         def sort_key(rec: dict[str, Any]) -> tuple[int, int, str]:
+            """Compute sorting priority key for directory records.
+
+            Parameters
+            ------------
+            rec: dict[str, Any]
+                Directory record metadata dictionary.
+
+            Returns
+            --------
+                tuple[int, int, str]: tuple object
+                    Rank tuple sorting directories first, volumes second, and name.
+            """
             dir_rank: int = 0 if rec["is_dir"] else 1
             vol_rank: int = 0 if rec["is_volume"] else 1
             name_lower: str = rec["name"].lower()

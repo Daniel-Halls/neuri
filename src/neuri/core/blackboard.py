@@ -492,8 +492,11 @@ class Blackboard:
             TaskState.CANCELLED,
         },
         TaskState.RETRYING: {
+            TaskState.PENDING,
             TaskState.PREFLIGHT_CHECK,
             TaskState.RUNNING,
+            TaskState.WAITING_OPERATOR,
+            TaskState.FAILED,
             TaskState.CANCELLED,
         },
         TaskState.WAITING_OPERATOR: {
@@ -2895,6 +2898,7 @@ class Blackboard:
             workflow_id=row["workflow_id"],
             agent_role=row["agent_role"],
             harness_id=row["harness_id"],
+            model=envelope_val.model if envelope_val is not None else None,
             state=TaskState(row["state"]),
             attempt=row["attempt"],
             max_retries=row["max_retries"],

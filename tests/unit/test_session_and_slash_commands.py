@@ -535,3 +535,94 @@ async def test_session_engine_event_bus(
     count_before: int = len(received_events)
     await engine.submit_user_input("/clear")
     assert len(received_events) == count_before
+
+
+@pytest.mark.asyncio
+async def test_session_engine_harness_switch_auto_updates_model(
+    test_workspace: Path,
+    test_blackboard: Blackboard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test switching harness automatically switches to a model on that harness.
+
+    Parameters
+    ------------
+    test_workspace: Path
+        Workspace fixture.
+    test_blackboard: Blackboard
+        Blackboard fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts model changes to target harness model after /harness.
+    """
+    from neuri.adapters.registry import AdapterRegistry
+
+    def fake_models_for_harness(
+        self_reg: AdapterRegistry, harness_id: str
+    ) -> list[str]:
+        """Return mock models per harness for testing.
+
+        Parameters
+        ------------
+        self_reg: AdapterRegistry
+            Registry instance.
+        harness_id: str
+            Harness identifier.
+
+        Returns
+        --------
+            list[str]: list object
+                Simulated model identifiers for the harness.
+        """
+        catalog: dict[str, list[str]] = {
+            "agy": ["gemini-4-argon-medium", "gemini-3.8-flash-low"],
+            "ollama": ["gemma4:26b", "kimi-k2.7-code:cloud"],
+            "openclaw": ["ollama/gemma4:26b"],
+        }
+        return catalog.get(harness_id, [])
+
+    monkeypatch.setattr(
+        AdapterRegistry, "get_models_for_harness", fake_models_for_harness
+    )
+
+    await (
+        NeuriSessionEngine(
+            workspace_dir=test_workspace,
+            blackboard=test_blackboard,
+        ).submit_user_input("/init")
+    )
+
+    engine: NeuriSessionEngine = NeuriSessionEngine(
+        workspace_dir=test_workspace,
+        blackboard=test_blackboard,
+        harness="agy",
+        model="gemini-3.8-flash-low",
+    )
+    assert engine.harness == "agy"
+    assert engine.model == "gemini-3.8-flash-low"
+
+    # Trigger config reload action first via /theme to ensure router stays bound
+    await engine.submit_user_input("/theme dark")
+
+    # Switch harness to ollama without specifying a model
+    turn_ollama: ChatTurn = await engine.submit_user_input("/harness ollama")
+    assert "ollama" in turn_ollama.content
+    assert "gemma4:26b" in turn_ollama.content
+    assert engine.harness == "ollama"
+    assert engine.model == "gemma4:26b"
+    for r_cfg in engine.config.harness_routing.values():
+        assert r_cfg.harness == "ollama"
+        assert r_cfg.model == "gemma4:26b"
+
+    # Plan a workflow and verify the DAG node uses ollama and gemma4:26b
+    wf_id: str = engine._orchestrator.plan_workflow_from_prompt("hello")
+    nodes: list[TaskNode] = engine._blackboard.get_ready_nodes(wf_id)
+    assert len(nodes) == 1
+    assert nodes[0].harness_id == "ollama"
+    assert nodes[0].model == "gemma4:26b"
+    assert nodes[0].envelope.model == "gemma4:26b"
+

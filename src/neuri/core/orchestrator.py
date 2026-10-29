@@ -185,6 +185,90 @@ class DAGOrchestrator:
         )
         return agent
 
+    @property
+    def registry(self) -> AdapterRegistry:
+        """Provide access to the initialized adapter registry.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            AdapterRegistry: AdapterRegistry instance
+                Underlying adapter registry.
+        """
+        reg: AdapterRegistry = self._registry
+        return reg
+
+    def resolve_active_model(
+        self, harness_id: str | None = None
+    ) -> str | None:
+        """Resolve a valid model dynamically from the target harness.
+
+        If a model is configured and valid for the harness (or the harness
+        cannot be queried), returns the configured model. Otherwise returns
+        the first available model reported by the harness.
+
+        Parameters
+        ------------
+        harness_id: str | None
+            Target harness identifier. Defaults to active default_harness.
+
+        Returns
+        --------
+            str | None: string or None
+                Resolved model identifier from the harness, or None.
+        """
+        target_h: str = (
+            harness_id
+            if harness_id is not None
+            else getattr(self._config.project, "default_harness", "agy")
+        )
+        configured: str | None = self._config.project.default_model
+        try:
+            avail_models: list[str] = self._registry.get_models_for_harness(
+                target_h
+            )
+        except Exception:
+            avail_models = []
+
+        if avail_models:
+            if configured and configured in avail_models:
+                return configured
+            return avail_models[0]
+        return configured
+
+    def sync_harness_model(
+        self, harness_id: str | None = None
+    ) -> str | None:
+        """Synchronize active configuration to a valid model for the harness.
+
+        Parameters
+        ------------
+        harness_id: str | None
+            Target harness identifier. Defaults to active default_harness.
+
+        Returns
+        --------
+            str | None: string or None
+                Synchronized model identifier for the target harness.
+        """
+        target_h: str = (
+            harness_id
+            if harness_id is not None
+            else getattr(self._config.project, "default_harness", "agy")
+        )
+        resolved_m: str | None = self.resolve_active_model(target_h)
+        self._config.project.default_harness = target_h
+        if resolved_m is not None:
+            self._config.project.default_model = resolved_m
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.harness = target_h
+                    r_cfg.model = resolved_m
+        return resolved_m
+
     def plan_workflow_from_prompt(
         self, prompt: str, workflow_id: str | None = None
     ) -> str:
@@ -212,13 +296,19 @@ class DAGOrchestrator:
             prompt=prompt,
         )
 
+        active_harness: str = getattr(
+            self._config.project, "default_harness", "agy"
+        )
+        active_model: str | None = self.resolve_active_model(active_harness)
+
         matched_skills: list[str] = self._match_skills_from_prompt(prompt)
         if not matched_skills:
             node_id: str = f"node_{wf_id}_1_task"
             agent_role: str = "coordinator"
             route = self._config.harness_routing.get(agent_role)
-            harness_id: str = route.harness if route is not None else "agy"
+            harness_id: str = active_harness
             exec_mode: str = route.mode if route is not None else "headless_json"
+            model_id: str | None = active_model
             specialist: BaseSpecialistAgent = self._resolve_specialist_agent(
                 agent_role
             )
@@ -229,6 +319,7 @@ class DAGOrchestrator:
                 harness_id=harness_id,
                 execution_mode=exec_mode,
                 config=self._config,
+                model=model_id,
             )
             envelope: NeuriTaskEnvelope = base_env.model_copy(
                 update={"skill_paths": []}
@@ -238,6 +329,7 @@ class DAGOrchestrator:
                 workflow_id=wf_id,
                 agent_role=agent_role,
                 harness_id=harness_id,
+                model=model_id,
                 state=TaskState.PENDING,
                 attempt=0,
                 max_retries=self._config.budgets.max_node_retries,
@@ -253,8 +345,9 @@ class DAGOrchestrator:
                 skill_id, "neuroimaging_specialist"
             )
             route = self._config.harness_routing.get(agent_role)
-            harness_id: str = route.harness if route is not None else "agy"
+            harness_id: str = active_harness
             exec_mode: str = route.mode if route is not None else "headless_json"
+            model_id: str | None = active_model
 
             resolved_dir: Path | None = PathResolver.resolve_skill_dir(skill_id)
             skill_paths: list[str] = (
@@ -274,6 +367,7 @@ class DAGOrchestrator:
                 harness_id=harness_id,
                 execution_mode=exec_mode,
                 config=self._config,
+                model=model_id,
             )
             envelope: NeuriTaskEnvelope = base_env.model_copy(
                 update={"skill_paths": skill_paths}
@@ -283,6 +377,7 @@ class DAGOrchestrator:
                 workflow_id=wf_id,
                 agent_role=agent_role,
                 harness_id=harness_id,
+                model=model_id,
                 state=TaskState.PENDING,
                 attempt=0,
                 max_retries=self._config.budgets.max_node_retries,
@@ -506,12 +601,70 @@ class DAGOrchestrator:
             )
             return harness_fail
 
+        try:
+            avail_for_adapter: list[str] = (
+                self._registry.get_models_for_harness(adapter.harness_id)
+            )
+        except Exception:
+            avail_for_adapter = []
+
+        if avail_for_adapter and (
+            node.envelope.model is None
+            or node.envelope.model not in avail_for_adapter
+        ):
+            valid_model: str | None = self.resolve_active_model(
+                adapter.harness_id
+            )
+            node.envelope = node.envelope.model_copy(
+                update={
+                    "harness_id": adapter.harness_id,
+                    "model": valid_model,
+                }
+            )
+            node.model = valid_model
+            self._blackboard.update_node_envelope(node.node_id, node.envelope)
+
+        if on_event is not None:
+            model_info: str = (
+                f" ({node.envelope.model})"
+                if node.envelope is not None and node.envelope.model
+                else ""
+            )
+            dispatch_ev: TelemetryEvent = TelemetryEvent(
+                event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                workflow_id=node.workflow_id,
+                node_id=node.node_id,
+                harness_id=adapter.harness_id,
+                event_type="raw_stream",
+                raw_text=(
+                    f"Dispatched node '{node.node_id}' ({node.agent_role}) "
+                    f"to harness '{adapter.harness_id}'{model_info}"
+                ),
+            )
+            on_event(dispatch_ev)
+
         exec_res: NeuriTaskResult = await adapter.execute(
             envelope=node.envelope,
             on_event=on_event,
             timeout_seconds=timeout_seconds,
             blackboard=self._blackboard,
         )
+
+        if on_event is not None:
+            status_txt: str = "completed" if exec_res.success else "failed"
+            done_ev: TelemetryEvent = TelemetryEvent(
+                event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                workflow_id=node.workflow_id,
+                node_id=node.node_id,
+                harness_id=node.harness_id,
+                event_type="raw_stream",
+                raw_text=(
+                    f"Node '{node.node_id}' {status_txt} "
+                    f"({exec_res.total_tokens:,} tokens, "
+                    f"${exec_res.cost_usd:.4f} USD)"
+                ),
+            )
+            on_event(done_ev)
 
         # 3. Handle outcome via QA_REVIEW and CriticQAAgent
         if exec_res.success:
