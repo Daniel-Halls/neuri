@@ -275,31 +275,31 @@ class OpenClawAdapter(BaseHarnessAdapter):
         import subprocess
 
         models: list[str] = []
+        if self.is_available():
+            self._read_config_models(models)
+
         try:
             res: subprocess.CompletedProcess[str] = subprocess.run(
                 [self.executable_name, "models", "list"],
                 capture_output=True,
                 text=True,
-                timeout=15.0,
+                timeout=3.0,
             )
             if res.returncode == 0 and res.stdout.strip():
                 self._parse_models_stdout(res.stdout, models)
-            else:
+            elif not models:
                 res_fallback: subprocess.CompletedProcess[str] = (
                     subprocess.run(
                         [self.executable_name, "models"],
                         capture_output=True,
                         text=True,
-                        timeout=15.0,
+                        timeout=3.0,
                     )
                 )
                 if res_fallback.returncode == 0:
                     self._parse_models_stdout(res_fallback.stdout, models)
         except (subprocess.SubprocessError, OSError, TimeoutError):
             pass
-
-        if self.is_available():
-            self._read_config_models(models)
 
         return models
 

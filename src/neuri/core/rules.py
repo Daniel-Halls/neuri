@@ -105,8 +105,10 @@ class RuleLoader:
                     continue
 
                 stem: str = rule_file.stem.lower()
-                is_general: bool = stem in (
-                    "general", "rules", "default", "global", "common"
+                is_general: bool = (
+                    stem in ("general", "rules", "default", "global", "common")
+                    or stem.startswith("global_")
+                    or stem.startswith("global-")
                 )
                 is_matching_role: bool = False
                 if role:

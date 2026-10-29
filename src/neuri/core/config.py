@@ -702,7 +702,26 @@ class ConfigManager:
         """
         merged_dict: dict[str, Any] = {}
 
-        if self.global_config_path.exists():
+        proj_str: str = str(self.project_root.resolve())
+        global_str: str = str(self.global_config_path.resolve())
+        proj_is_temp: bool = (
+            proj_str.startswith("/private/var/folders/")
+            or proj_str.startswith("/var/folders/")
+            or proj_str.startswith("/tmp/")
+            or proj_str.startswith("/private/tmp/")
+            or "pytest-of-" in proj_str
+        )
+        global_is_temp: bool = (
+            global_str.startswith("/private/var/folders/")
+            or global_str.startswith("/var/folders/")
+            or global_str.startswith("/tmp/")
+            or global_str.startswith("/private/tmp/")
+            or "pytest-of-" in global_str
+        )
+
+        if self.global_config_path.exists() and (
+            not proj_is_temp or global_is_temp
+        ):
             try:
                 with open(self.global_config_path, "rb") as fh:
                     global_data: dict[str, Any] = tomllib.load(fh)
@@ -717,6 +736,17 @@ class ConfigManager:
                     f"Failed to read global config "
                     f"'{self.global_config_path}': {exc}"
                 ) from exc
+
+        alt_project_cfg: Path = (
+            self.project_root / self.PROJECT_DIR_NAME / "config.toml"
+        )
+        if alt_project_cfg.exists():
+            try:
+                with open(alt_project_cfg, "rb") as fh:
+                    alt_data: dict[str, Any] = tomllib.load(fh)
+                    merged_dict = deep_merge(merged_dict, alt_data)
+            except (tomllib.TOMLDecodeError, OSError):
+                pass
 
         if self.project_config_path.exists():
             try:

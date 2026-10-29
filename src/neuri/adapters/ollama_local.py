@@ -217,6 +217,44 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
         )
         return result
 
+    def _read_manifest_models(self, models: list[str]) -> None:
+        """Discover installed Ollama models from local manifest files.
+
+        Parameters
+        ------------
+        models: list[str]
+            Target list to append unique discovered model identifiers.
+
+        Returns
+        --------
+            None: NoneType object
+                Appends discovered local manifest models in place.
+        """
+        from pathlib import Path
+
+        lib_dir: Path = (
+            Path.home()
+            / ".ollama"
+            / "models"
+            / "manifests"
+            / "registry.ollama.ai"
+            / "library"
+        )
+        if not lib_dir.is_dir():
+            return
+        try:
+            for model_dir in sorted(lib_dir.iterdir()):
+                if not model_dir.is_dir() or model_dir.name.startswith("."):
+                    continue
+                for tag_file in sorted(model_dir.iterdir()):
+                    if not tag_file.is_file() or tag_file.name.startswith("."):
+                        continue
+                    tag_id: str = f"{model_dir.name}:{tag_file.name}"
+                    if tag_id not in models:
+                        models.append(tag_id)
+        except OSError:
+            pass
+
     def list_available_models(self) -> list[str]:
         """Query real local models directly from the Ollama CLI.
 
@@ -227,7 +265,7 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
         Returns
         --------
             list[str]: list object
-                Models returned directly by the 'ollama list' command.
+                Models returned directly by 'ollama list' or local manifests.
         """
         import subprocess
 
@@ -239,21 +277,28 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
                 text=True,
                 timeout=10.0,
             )
-            if res.returncode != 0:
-                return models
-            lines: list[str] = [
-                ln.strip()
-                for ln in res.stdout.splitlines()
-                if ln.strip()
-            ]
-            for line in lines:
-                tokens: list[str] = line.split()
-                if not tokens or tokens[0].upper() == "NAME":
-                    continue
-                if tokens[0] not in models:
-                    models.append(tokens[0])
+            if res.returncode == 0:
+                lines: list[str] = [
+                    ln.strip()
+                    for ln in res.stdout.splitlines()
+                    if ln.strip()
+                ]
+                for line in lines:
+                    tokens: list[str] = line.split()
+                    if not tokens or tokens[0].upper() == "NAME":
+                        continue
+                    if tokens[0] not in models:
+                        models.append(tokens[0])
         except (subprocess.SubprocessError, OSError, TimeoutError):
             pass
+
+        if (
+            not models
+            and self._executable_path == self.EXECUTABLE_NAME
+            and self.is_available()
+        ):
+            self._read_manifest_models(models)
+
         return models
 
 

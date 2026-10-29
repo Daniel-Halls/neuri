@@ -538,12 +538,12 @@ class SlashCommandRouter:
             },
         )
 
-    def _resolve_target_config_path(self) -> Path | None:
-        """Resolve configuration file path for persisting slash command updates.
+    def _resolve_target_config_paths(self) -> list[Path]:
+        """Resolve configuration file paths for persisting slash command updates.
 
-        Checks workspace `.neuri/neuri.toml` and `.neuri/config.toml` first.
-        Only falls back to `~/.neuri/config.toml` when the workspace is not
-        inside a temporary test directory (`/tmp`, `/var/folders`).
+        Includes workspace `.neuri/neuri.toml` and `.neuri/config.toml` when
+        present, plus `~/.neuri/config.toml` when the workspace is not inside
+        a temporary test directory (`/tmp`, `/var/folders`).
 
         Parameters
         ------------
@@ -551,34 +551,35 @@ class SlashCommandRouter:
 
         Returns
         --------
-            Path | None: Path object or None
-                Target TOML file path for persisting configuration updates.
+            list[Path]: list object
+                Target TOML file paths for persisting configuration updates.
         """
+        targets: list[Path] = []
         ws_dot: Path = self._workspace_dir / ".neuri"
         if (ws_dot / "neuri.toml").is_file():
-            return ws_dot / "neuri.toml"
+            targets.append(ws_dot / "neuri.toml")
         if (ws_dot / "config.toml").is_file():
-            return ws_dot / "config.toml"
-        if ws_dot.is_dir():
-            return ws_dot / "neuri.toml"
+            targets.append(ws_dot / "config.toml")
 
         ws_str: str = str(self._workspace_dir.resolve())
-        if (
+        is_temp: bool = (
             ws_str.startswith("/private/var/folders/")
             or ws_str.startswith("/var/folders/")
             or ws_str.startswith("/tmp/")
             or ws_str.startswith("/private/tmp/")
             or "pytest-of-" in ws_str
-        ):
-            return None
+        )
+        if not is_temp:
+            home_cfg: Path = Path.home() / ".neuri" / "config.toml"
+            if home_cfg.is_file() and home_cfg not in targets:
+                targets.append(home_cfg)
 
-        home_cfg: Path = Path.home() / ".neuri" / "config.toml"
-        return home_cfg
+        return targets
 
     def _persist_harness_and_model(
         self, harness_id: str, model_id: str | None
     ) -> None:
-        """Persist active harness and model to the resolved config TOML file.
+        """Persist active harness and model to all resolved config TOML files.
 
         Parameters
         ------------
@@ -590,42 +591,47 @@ class SlashCommandRouter:
         Returns
         --------
             None: NoneType object
-                Writes updated harness and model to disk if a config file exists.
+                Writes updated harness and model to disk if config files exist.
         """
-        cfg_path: Path | None = self._resolve_target_config_path()
-        if cfg_path is None or not cfg_path.is_file():
+        cfg_paths: list[Path] = self._resolve_target_config_paths()
+        if not cfg_paths:
             return
 
-        try:
-            import tomllib
-            import tomli_w
+        import tomllib
+        import tomli_w
 
-            raw_cfg: dict[str, Any] = tomllib.loads(
-                cfg_path.read_text(encoding="utf-8")
-            )
-            if "project" not in raw_cfg or not isinstance(
-                raw_cfg["project"], dict
-            ):
-                raw_cfg["project"] = {}
-            raw_cfg["project"]["default_harness"] = harness_id
-            if model_id is not None:
-                raw_cfg["project"]["default_model"] = model_id
-            elif "default_model" in raw_cfg["project"]:
-                del raw_cfg["project"]["default_model"]
-
-            if "harness_routing" not in raw_cfg or not isinstance(
-                raw_cfg["harness_routing"], dict
-            ):
-                raw_cfg["harness_routing"] = {}
-            for r_name in self._config.harness_routing:
-                r_ent: dict[str, Any] = {"harness": harness_id}
+        for cfg_path in cfg_paths:
+            if not cfg_path.is_file():
+                continue
+            try:
+                raw_cfg: dict[str, Any] = tomllib.loads(
+                    cfg_path.read_text(encoding="utf-8")
+                )
+                if "project" not in raw_cfg or not isinstance(
+                    raw_cfg["project"], dict
+                ):
+                    raw_cfg["project"] = {}
+                raw_cfg["project"]["default_harness"] = harness_id
                 if model_id is not None:
-                    r_ent["model"] = model_id
-                raw_cfg["harness_routing"][r_name] = r_ent
+                    raw_cfg["project"]["default_model"] = model_id
+                elif "default_model" in raw_cfg["project"]:
+                    del raw_cfg["project"]["default_model"]
 
-            cfg_path.write_text(tomli_w.dumps(raw_cfg), encoding="utf-8")
-        except Exception:
-            pass
+                if "harness_routing" not in raw_cfg or not isinstance(
+                    raw_cfg["harness_routing"], dict
+                ):
+                    raw_cfg["harness_routing"] = {}
+                for r_name in self._config.harness_routing:
+                    r_ent: dict[str, Any] = {"harness": harness_id}
+                    if model_id is not None:
+                        r_ent["model"] = model_id
+                    raw_cfg["harness_routing"][r_name] = r_ent
+
+                cfg_path.write_text(
+                    tomli_w.dumps(raw_cfg), encoding="utf-8"
+                )
+            except Exception:
+                pass
 
     def _handle_harness(self, args: list[str]) -> SlashCommandResult:
         """Display or update AI harness configuration uniformly across all roles.

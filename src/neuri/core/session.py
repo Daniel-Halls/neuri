@@ -113,21 +113,20 @@ class NeuriSessionEngine:
             blackboard=self._blackboard,
             config=self._config,
         )
+        prior_model: str | None = self._config.project.default_model
+        resolved_m: str | None = prior_model
         if explicit_model is None:
-            resolved_m: str | None = self._orchestrator.resolve_active_model(
-                self.harness
-            )
-            if resolved_m is not None:
-                self._config.project.default_model = resolved_m
-                if isinstance(self._config.harness_routing, dict):
-                    for r_cfg in self._config.harness_routing.values():
-                        r_cfg.model = resolved_m
+            resolved_m = self._orchestrator.sync_harness_model(self.harness)
         self._slash_router: SlashCommandRouter = SlashCommandRouter(
             workspace_dir=self._workspace_dir,
             config=self._config,
             blackboard=self._blackboard,
             orchestrator=self._orchestrator,
         )
+        if explicit_model is None and resolved_m != prior_model:
+            self._slash_router._persist_harness_and_model(
+                self.harness, resolved_m
+            )
 
         self._listeners: list[Callable[[SessionEvent], None]] = []
         self._turns: list[ChatTurn] = []
@@ -359,6 +358,10 @@ class NeuriSessionEngine:
                 blackboard=self._blackboard,
                 config=self._config,
             )
+            self._orchestrator.sync_harness_model(self.harness)
+            self._slash_router._config = self._config
+            self._slash_router._blackboard = self._blackboard
+            self._slash_router._orchestrator = self._orchestrator
 
         # Emit status update event
         self.emit_event(

@@ -239,6 +239,36 @@ class DAGOrchestrator:
             return avail_models[0]
         return configured
 
+    def sync_harness_model(
+        self, harness_id: str | None = None
+    ) -> str | None:
+        """Synchronize active configuration to a valid model for the harness.
+
+        Parameters
+        ------------
+        harness_id: str | None
+            Target harness identifier. Defaults to active default_harness.
+
+        Returns
+        --------
+            str | None: string or None
+                Synchronized model identifier for the target harness.
+        """
+        target_h: str = (
+            harness_id
+            if harness_id is not None
+            else getattr(self._config.project, "default_harness", "agy")
+        )
+        resolved_m: str | None = self.resolve_active_model(target_h)
+        self._config.project.default_harness = target_h
+        if resolved_m is not None:
+            self._config.project.default_model = resolved_m
+            if isinstance(self._config.harness_routing, dict):
+                for r_cfg in self._config.harness_routing.values():
+                    r_cfg.harness = target_h
+                    r_cfg.model = resolved_m
+        return resolved_m
+
     def plan_workflow_from_prompt(
         self, prompt: str, workflow_id: str | None = None
     ) -> str:
@@ -546,24 +576,6 @@ class DAGOrchestrator:
 
         # 2. Dispatch to harness
         self._blackboard.update_node_state(node.node_id, TaskState.RUNNING)
-        if on_event is not None:
-            model_info: str = (
-                f" ({node.envelope.model})"
-                if node.envelope is not None and node.envelope.model
-                else ""
-            )
-            dispatch_ev: TelemetryEvent = TelemetryEvent(
-                event_id=f"tevt_{uuid.uuid4().hex[:16]}",
-                workflow_id=node.workflow_id,
-                node_id=node.node_id,
-                harness_id=node.harness_id,
-                event_type="raw_stream",
-                raw_text=(
-                    f"Dispatched node '{node.node_id}' ({node.agent_role}) "
-                    f"to harness '{node.harness_id}'{model_info}"
-                ),
-            )
-            on_event(dispatch_ev)
         try:
             adapter: BaseHarnessAdapter = self._registry.get_adapter(
                 node.harness_id
@@ -588,6 +600,48 @@ class DAGOrchestrator:
                 error_message=str(exc),
             )
             return harness_fail
+
+        try:
+            avail_for_adapter: list[str] = (
+                self._registry.get_models_for_harness(adapter.harness_id)
+            )
+        except Exception:
+            avail_for_adapter = []
+
+        if avail_for_adapter and (
+            node.envelope.model is None
+            or node.envelope.model not in avail_for_adapter
+        ):
+            valid_model: str | None = self.resolve_active_model(
+                adapter.harness_id
+            )
+            node.envelope = node.envelope.model_copy(
+                update={
+                    "harness_id": adapter.harness_id,
+                    "model": valid_model,
+                }
+            )
+            node.model = valid_model
+            self._blackboard.update_node_envelope(node.node_id, node.envelope)
+
+        if on_event is not None:
+            model_info: str = (
+                f" ({node.envelope.model})"
+                if node.envelope is not None and node.envelope.model
+                else ""
+            )
+            dispatch_ev: TelemetryEvent = TelemetryEvent(
+                event_id=f"tevt_{uuid.uuid4().hex[:16]}",
+                workflow_id=node.workflow_id,
+                node_id=node.node_id,
+                harness_id=adapter.harness_id,
+                event_type="raw_stream",
+                raw_text=(
+                    f"Dispatched node '{node.node_id}' ({node.agent_role}) "
+                    f"to harness '{adapter.harness_id}'{model_info}"
+                ),
+            )
+            on_event(dispatch_ev)
 
         exec_res: NeuriTaskResult = await adapter.execute(
             envelope=node.envelope,
