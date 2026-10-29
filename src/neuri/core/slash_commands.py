@@ -347,6 +347,7 @@ class SlashCommandRouter:
                 f"- `skills/`: Neuroscience skills catalog and manuals\n"
                 f"- `mcp/`: Model Context Protocol server definitions\n"
                 f"- `rules/`: Workspace and domain rule configurations\n"
+                f"- `brain/`: Cognitive semantic memory vault & MRI pipeline docs\n"
             )
         else:
             msg = (
@@ -1634,7 +1635,7 @@ class SlashCommandRouter:
                 "- `/brain context <topic>`: Preview low-context LLM capsule\n"
                 "- `/brain remember <fact>`: Record quick observation\n"
                 "- `/brain link <path>`: Link external Obsidian vault\n"
-                "- `/brain init`: Scaffold vaults with starter notes\n"
+                "- `/brain init`: Scaffold vaults and index pipeline docs\n"
                 "- `/brain open`: Open vault in Obsidian desktop app"
             )
             return SlashCommandResult(
@@ -1644,18 +1645,20 @@ class SlashCommandRouter:
                 data=stats.model_dump(),
             )
 
-        elif subcmd == "init":
+        elif subcmd in ("init", "install"):
             g_files = mgr.init_global_vault()
             p_files = mgr.init_project_vault()
             md = (
-                "### Neuri Brain Initialized\n\n"
+                "### Neuri Brain Initialized & Documentation Installed\n\n"
                 f"- **Global Vault:** `{mgr.global_vault}`\n"
                 f"- **Project Vault:** `{mgr.project_vault}`\n"
-                f"- **Scaffolded Notes:** {len(g_files) + len(p_files)} notes\n\n"
-                "You can now open these folders directly in Obsidian as vaults!"
+                f"- **Scaffolded Notes:** {len(g_files) + len(p_files)} notes\n"
+                f"- **Pipeline Docs:** Stored in `{mgr.global_vault / 'doc'}`\n\n"
+                "You can now open these folders directly in Obsidian as vaults, "
+                "or search with `/brain search <pipeline>`!"
             )
             return SlashCommandResult(
-                command="/brain init",
+                command=f"/brain {subcmd}",
                 success=True,
                 markdown_output=md,
                 data={

@@ -59,8 +59,34 @@ class NeuriInstaller:
             else PathResolver.get_base_template_dir()
         )
 
+    def _index_installed_brain(self, brain_dir: Path) -> int:
+        """Index markdown notes in the installed brain vault into SQLite FTS5.
+
+        Parameters
+        ------------
+        brain_dir: Path
+            Filesystem directory of the installed brain vault.
+
+        Returns
+        --------
+            int: integer object
+                Total number of indexed or updated notes.
+        """
+        try:
+            from neuri.brain.indexer import BrainIndexer
+            from neuri.brain.schemas import BrainScope
+
+            db_path: Path = brain_dir / ".neuri-brain.db"
+            indexer: BrainIndexer = BrainIndexer(db_path=db_path)
+            metrics = indexer.sync_vault(
+                vault_dir=brain_dir, scope=BrainScope.GLOBAL
+            )
+            return metrics.get("added", 0) + metrics.get("updated", 0)
+        except Exception:
+            return 0
+
     def install(self, force: bool = False) -> dict[str, Any]:
-        """Install base global, skills, mcp, and rules folders into target.
+        """Install base global, skills, mcp, rules, and brain folders into target.
 
         Parameters
         ------------
@@ -80,7 +106,9 @@ class NeuriInstaller:
             "mcp",
             "rules",
             "themes",
+            "brain",
         ]
+
         if self._source_dir.is_dir():
             for item in sorted(self._source_dir.iterdir()):
                 if item.name.startswith(".") or item.name == "__pycache__":
@@ -95,6 +123,11 @@ class NeuriInstaller:
 
         for section in installed_sections:
             src_section: Path = self._source_dir / section
+            if not src_section.exists() and section == "brain":
+                fallback_brain = PathResolver.get_repo_root() / "brain"
+                if fallback_brain.is_dir():
+                    src_section = fallback_brain
+
             dst_section: Path = self._target_dir / section
 
             if not dst_section.exists():
@@ -105,14 +138,35 @@ class NeuriInstaller:
                 else:
                     dst_section.mkdir(parents=True, exist_ok=True)
                 result_paths["installed"].append(section)
+            elif src_section.is_dir() and dst_section.is_dir():
+                copied_any = False
+                for sub in src_section.iterdir():
+                    if sub.name.startswith(".") or sub.name == "__pycache__":
+                        continue
+                    dst_sub = dst_section / sub.name
+                    if not dst_sub.exists():
+                        if sub.is_dir():
+                            shutil.copytree(sub, dst_sub)
+                        elif sub.is_file():
+                            shutil.copy2(sub, dst_sub)
+                        copied_any = True
+                    elif force:
+                        if sub.is_dir():
+                            shutil.copytree(sub, dst_sub, dirs_exist_ok=True)
+                        elif sub.is_file():
+                            shutil.copy2(sub, dst_sub)
+                        copied_any = True
+                if copied_any or force:
+                    result_paths["installed"].append(section)
             elif force:
-                if src_section.is_dir():
-                    shutil.copytree(
-                        src_section, dst_section, dirs_exist_ok=True
-                    )
-                elif src_section.is_file():
+                if src_section.is_file():
                     shutil.copy2(src_section, dst_section)
                 result_paths["installed"].append(section)
+
+        # Index installed brain notes into SQLite FTS5
+        brain_dir: Path = self._target_dir / "brain"
+        if brain_dir.is_dir():
+            self._index_installed_brain(brain_dir)
 
         # Ensure default hosts.toml and config.toml exist if missing
         hosts_file: Path = self._target_dir / "hosts.toml"
@@ -150,6 +204,7 @@ class NeuriInstaller:
             "mcp",
             "rules",
             "themes",
+            "brain",
         ]
         if not self._target_dir.is_dir():
             return False

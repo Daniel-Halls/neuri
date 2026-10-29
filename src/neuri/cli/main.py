@@ -204,7 +204,7 @@ class NeuriCLI:
             ),
         ] = None,
     ) -> None:
-        """Install base Neuri prompts, skills, MCP, and rules into target directory.
+        """Install base Neuri prompts, skills, MCP, rules, and brain.
 
         Parameters
         ------------
@@ -246,6 +246,9 @@ class NeuriCLI:
             self.console.print("  - rules/: Operational rules directory")
             self.console.print(
                 "  - themes/: Terminal UI themes (high_contrast, dark, etc.)"
+            )
+            self.console.print(
+                "  - brain/: Cognitive semantic memory vault & MRI pipeline docs"
             )
         else:
             self.console.print(
