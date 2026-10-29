@@ -1,28 +1,6 @@
 # Neuri
 
-> **Vendor-Agnostic, Multi-Agent Neuroscience Meta-Harness**
-
-Neuri is an autonomous neuroscience research harness designed to orchestrate complex multi-agent pipelines across public neuroscience ecosystems (BIDS, FSL, FreeSurfer, ANTs, Nilearn, MRtrix3, DIPY, MNE-Python, PyMC, and `sbi`) and vendor-diverse LLM CLI drivers (Google Antigravity `agy`, OpenAI Codex CLI `codex`, OpenCode, OpenClaw, and local Ollama).
-
-Built around an **interactive chat-first terminal interface** (like `agy` or `claude`), Neuri features a strictly decoupled, UI-agnostic session engine ready to migrate smoothly into a full Desktop (Tauri/Electron) or Web GUI.
-
----
-
-## Key Features
-
-- 💬 **Interactive Terminal Chat Interface:** Typing `neuri` immediately launches an interactive Textual chat center with markdown rendering, collapsible sub-agent `<thinking>` reasoning drawers, and live telemetry status bars.
-- ⚡ **Interactive Slash Commands:** Run `/init`, `/skills`, `/status`, `/harness`, `/retry`, `/cancel`, `/clear`, and `/help` directly inside the chat prompt with tab auto-completion.
-- 🔄 **UI-Agnostic Session Engine (`NeuriSessionEngine`):** Core orchestration logic communicates purely via typed async events (`SessionEvent`), ensuring any future Desktop/Web GUI can attach with zero changes to orchestration.
-- 🔒 **Deterministic Zero-Token Pre-Flight Gate:** Strictly verifies Protected Health Information (PHI) sanitization (`phi_sanitized == True`), coordinate space alignment (e.g. MNI152 vs. native space), and artifact file existence before any LLM context is loaded or subprocess is spawned.
-- 🗄️ **SQLite WAL Blackboard State Engine:** Checkpoints all workflows, task nodes, DAG edges, remote artifacts, telemetry events, and citation ledgers with topological dependency traversal and atomic cycle detection.
-- 🛡️ **Streaming TelemetryTap & Circuit Breakers:** Real-time stream parsing for `<thinking>` traces and multi-vendor NDJSON, backed by hard token ceilings, USD cost limits, and consecutive tool failure circuit breakers.
-- 🔌 **Vendor-Agnostic Harness Adapters:** Plug-and-play drivers for Tier-1 harnesses (Antigravity `agy`, OpenAI Codex CLI `codex`) and Tier-2 harnesses (OpenCode, OpenClaw, and local zero-cost Ollama).
-
----
-
-## Installation
-
-Neuri requires **Python 3.12+** and is managed using [`uv`](https://github.com/astral-sh/uv).
+A toolbox for your AI (more notes to come later, work in progress)
 
 ### Quick Install (Recommended)
 
@@ -232,10 +210,3 @@ To run the automated standards AST compliance checker:
 uv run pytest tests/unit/test_standards_compliance.py -v
 ```
 
----
-
-## Architecture & Roadmap
-
-For full engineering specifications and multi-phase implementation details:
-- [Neuri Architecture & Implementation Plan](technical_documenation/NEURI_ARCHITECTURE_AND_IMPLEMENTATION_PLAN.md)
-- [Phase 1 Implementation Plan](technical_documenation/PHASE_1_IMPLEMENTATION_PLAN.md)
