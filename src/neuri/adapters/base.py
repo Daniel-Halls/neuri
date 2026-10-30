@@ -128,6 +128,24 @@ class BaseHarnessAdapter(ABC):
         """
         pass
 
+    @property
+    def supports_tools(self) -> bool:
+        """Whether the harness can run shell, SSH or other tools itself.
+
+        Agentic CLI harnesses default to True. Text-completion-only harnesses
+        (e.g. Ollama via 'ollama run') must override this to False.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if the harness has a tool-calling loop, False otherwise.
+        """
+        return True
+
     def is_available(self) -> bool:
         """Check if the harness binary is installed and executable on the host.
 
