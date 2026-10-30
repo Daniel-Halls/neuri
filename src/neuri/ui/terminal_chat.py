@@ -277,7 +277,7 @@ class LiveFeedbackCard(Static):
             classes="card-header",
         )
         yield Static(
-            f"[dim cyan]⚡ {self._status_text}[/dim cyan]",
+            f"[dim cyan]{self._status_text}[/dim cyan]",
             id="live-status-line",
         )
         yield Static(
@@ -309,7 +309,7 @@ class LiveFeedbackCard(Static):
             status_widget: Static = self.query_one(
                 "#live-status-line", Static
             )
-            status_widget.update(f"[dim cyan]⚡ {text}[/dim cyan]")
+            status_widget.update(f"[dim cyan] {text}[/dim cyan]")
         except Exception:
             pass
 

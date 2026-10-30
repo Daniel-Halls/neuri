@@ -232,7 +232,7 @@ class NeuriCLI:
                 if status == "workflow_planned":
                     wf_id: str = str(ev.payload.get("workflow_id", ""))
                     self.console.print(
-                        f"[dim cyan]⚡ Workflow planned: "
+                        f"[dim cyan] Workflow planned: "
                         f"[bold]{wf_id}[/bold][/dim cyan]"
                     )
                 elif action == "raw_stream":
@@ -253,7 +253,7 @@ class NeuriCLI:
                     is_in_thinking = False
                 if tool_status == "started":
                     self.console.print(
-                        f"[yellow]⚡ Tool started: "
+                        f"[yellow] Tool started: "
                         f"[bold]{tool_name}[/bold] ({host})[/yellow]"
                     )
                 elif tool_status == "completed":
