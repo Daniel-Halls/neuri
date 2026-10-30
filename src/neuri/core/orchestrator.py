@@ -26,6 +26,11 @@ from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig
 from neuri.core.paths import PathResolver
 from neuri.core.preflight import PreflightCheckResult, PreflightValidator
+from neuri.remote.remote_probe import RemoteIntent, RemoteProbePlanner
+from neuri.remote.shell_executor import (
+    ShellCommandExecutor,
+    ShellExecutionResult,
+)
 from neuri.core.schemas import (
     NeuriTaskEnvelope,
     NeuriTaskResult,
@@ -112,6 +117,7 @@ class DAGOrchestrator:
         adapter_registry: AdapterRegistry | None = None,
         preflight_validator: PreflightValidator | None = None,
         skills_index_path: Path | None = None,
+        shell_executor: ShellCommandExecutor | None = None,
     ) -> None:
         """Initialize DAG orchestrator with core dependencies.
 
@@ -127,6 +133,9 @@ class DAGOrchestrator:
             Pre-flight validator. Defaults to None.
         skills_index_path: Path | None
             Catalog file path. Defaults to None.
+        shell_executor: ShellCommandExecutor | None
+            Executor used to run remote commands for tool-less harnesses.
+            Defaults to None (new executor).
 
         Returns
         --------
@@ -150,6 +159,11 @@ class DAGOrchestrator:
             else PreflightValidator(catalog_path=catalog)
         )
         self._critic_agent: CriticQAAgent = CriticQAAgent()
+        self._shell_executor: ShellCommandExecutor = (
+            shell_executor
+            if shell_executor is not None
+            else ShellCommandExecutor()
+        )
         self._specialist_agents: dict[str, BaseSpecialistAgent] = {
             "coordinator": BaseSpecialistAgent(
                 role_name="coordinator",
@@ -528,6 +542,81 @@ class DAGOrchestrator:
 
         return aggregated
 
+    async def _augment_with_remote_output(
+        self, instruction: str, intent: RemoteIntent
+    ) -> str:
+        """Run a remote command from Neuri and append its output.
+
+        Parameters
+        ------------
+        instruction: str
+            Original task instruction.
+        intent: RemoteIntent
+            Detected remote execution request with a runnable command.
+
+        Returns
+        --------
+            str: string object
+                Instruction with real command output (or error) appended.
+        """
+        command: str = intent.command or ""
+        res: ShellExecutionResult = await self._shell_executor.execute(
+            command=command, host=intent.host
+        )
+        output: str = (res.stdout or res.stderr).strip()
+        augmented: str = (
+            f"{instruction}\n\n{RemoteProbePlanner.OUTPUT_MARKER}: host={res.host}, "
+            f"command=`{command}`, exit_code={res.exit_code}, "
+            f"duration={res.duration_seconds:.1f}s]\n"
+            "This output was produced by Neuri, not by you. Use it to "
+            "answer the task; do not claim you cannot run commands.\n"
+            f"```\n{output}\n```"
+        )
+        return augmented
+
+    def _tool_gap_result(
+        self,
+        node: TaskNode,
+        adapter: BaseHarnessAdapter,
+        intent: RemoteIntent,
+    ) -> NeuriTaskResult:
+        """Fail fast when a task needs tools the harness does not have.
+
+        Parameters
+        ------------
+        node: TaskNode
+            Task node being executed.
+        adapter: BaseHarnessAdapter
+            Resolved tool-less harness adapter.
+        intent: RemoteIntent
+            Detected remote intent lacking a runnable command.
+
+        Returns
+        --------
+            NeuriTaskResult: NeuriTaskResult instance
+                Failed result with an actionable message.
+        """
+        msg: str = (
+            f"Harness '{adapter.harness_id}' cannot run commands on "
+            f"'{intent.host}' (no tool support) and Neuri could not extract "
+            "a command from the request. Put the command in backticks "
+            "(e.g. `module avail`) or switch harness with /harness agy."
+        )
+        self._blackboard.update_node_state(
+            node.node_id,
+            TaskState.WAITING_OPERATOR,
+            diagnostic_feedback=msg,
+            summary_result=msg,
+        )
+        result: NeuriTaskResult = NeuriTaskResult(
+            node_id=node.node_id,
+            success=False,
+            exit_code=126,
+            summary=msg,
+            error_message=msg,
+        )
+        return result
+
     async def _execute_single_node(
         self,
         node: TaskNode,
@@ -600,6 +689,26 @@ class DAGOrchestrator:
                 error_message=str(exc),
             )
             return harness_fail
+
+        if not adapter.supports_tools:
+            planner: RemoteProbePlanner = RemoteProbePlanner(
+                self._shell_executor.get_available_hosts(self._config)
+            )
+            intent: RemoteIntent | None = planner.detect(
+                node.envelope.task_instruction
+            )
+            if intent is not None and intent.command is None:
+                return self._tool_gap_result(node, adapter, intent)
+            if intent is not None:
+                augmented: str = await self._augment_with_remote_output(
+                    node.envelope.task_instruction, intent
+                )
+                node.envelope = node.envelope.model_copy(
+                    update={"task_instruction": augmented}
+                )
+                self._blackboard.update_node_envelope(
+                    node.node_id, node.envelope
+                )
 
         try:
             avail_for_adapter: list[str] = (

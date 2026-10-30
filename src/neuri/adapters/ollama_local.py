@@ -90,6 +90,21 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
         name: str = self._executable_path
         return name
 
+    @property
+    def supports_tools(self) -> bool:
+        """Ollama via 'ollama run' is text-only and has no tool loop.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                Always False.
+        """
+        return False
+
     def _resolve_target_model(self, envelope: NeuriTaskEnvelope) -> str:
         """Resolve the target Ollama model dynamically without hardcoding.
 
