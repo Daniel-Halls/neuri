@@ -2797,7 +2797,7 @@ class SlashCommandRouter:
             "### Neuri Interactive Commands\n\n"
             "| Command | Description |\n"
             "| :--- | :--- |\n"
-            "| `/convo [new]` | Start a new chat session or reset conversation |\n"
+            "| `/convo` | Start a new chat session or reset conversation |\n"
             "| `/install` | Install base prompt, skills, MCP, and rules |\n"
             "| `/skills` | Browse Tier-0 neuroscience skills catalog |\n"
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"
