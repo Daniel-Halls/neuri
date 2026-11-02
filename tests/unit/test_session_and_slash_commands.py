@@ -5,7 +5,9 @@ Tests slash command execution (/init, /skills, /status, /harness, /retry,
 and turn accumulation (Milestone 5).
 """
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,6 +17,7 @@ from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.schemas import (
     ChatRole,
     ChatTurn,
+    NeuriTaskResult,
     SessionEvent,
     SessionEventType,
     TaskNode,
@@ -112,41 +115,32 @@ def test_slash_router_detects_slash_commands(
         None: NoneType object
             Asserts detection returns expected booleans.
     """
-    assert slash_router.is_slash_command("/init") is True
+    assert slash_router.is_slash_command("/install") is True
     assert slash_router.is_slash_command("/skills list") is True
     assert slash_router.is_slash_command("  /status  ") is True
     assert slash_router.is_slash_command("perform brain extraction") is False
     assert slash_router.is_slash_command("/") is False
 
 
-def test_slash_command_init(
-    slash_router: SlashCommandRouter, test_workspace: Path
+def test_slash_command_init_removed(
+    slash_router: SlashCommandRouter,
 ) -> None:
-    """Test /init command initializes .neuri directory and assets.
+    """Test /init command is removed and treated as an unknown command.
 
     Parameters
     ------------
     slash_router: SlashCommandRouter
         Active router fixture.
-    test_workspace: Path
-        Workspace fixture.
 
     Returns
     --------
         None: NoneType object
-            Asserts .neuri workspace is created with config and db files.
+            Asserts /init is not supported and fails execution.
     """
+    assert "/init" not in slash_router.SUPPORTED_COMMANDS
     res: SlashCommandResult = slash_router.execute("/init")
-    assert res.success is True
-    assert res.command == "/init"
-    assert res.action == "reload_config"
-    assert "Workspace Initialized" in res.markdown_output
-
-    dot_dir: Path = test_workspace / ".neuri"
-    assert dot_dir.is_dir()
-    assert (dot_dir / "neuri.toml").is_file()
-    assert (dot_dir / "state.db").is_file()
-    assert (dot_dir / "references.bib").is_file()
+    assert res.success is False
+    assert "Unknown command: `/init`" in res.markdown_output
 
 
 def test_slash_command_skills_catalog(
@@ -324,7 +318,7 @@ def test_slash_command_help(
     """
     res: SlashCommandResult = slash_router.execute("/help")
     assert res.success is True
-    assert "/init" in res.markdown_output
+    assert "/init" not in res.markdown_output
     assert "/skills" in res.markdown_output
 
 
@@ -611,13 +605,6 @@ async def test_session_engine_harness_switch_auto_updates_model(
         AdapterRegistry, "get_models_for_harness", fake_models_for_harness
     )
 
-    await (
-        NeuriSessionEngine(
-            workspace_dir=test_workspace,
-            blackboard=test_blackboard,
-        ).submit_user_input("/init")
-    )
-
     engine: NeuriSessionEngine = NeuriSessionEngine(
         workspace_dir=test_workspace,
         blackboard=test_blackboard,
@@ -648,4 +635,139 @@ async def test_session_engine_harness_switch_auto_updates_model(
     assert nodes[0].model == "gemma4:26b"
     assert nodes[0].envelope is not None
     assert nodes[0].envelope.model == "gemma4:26b"
+
+
+@pytest.mark.asyncio
+async def test_continuous_conversation_and_convo_reset(
+    test_workspace: Path,
+    test_blackboard: Blackboard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that multiple prompts continue the same workflow until /convo resets.
+
+    Parameters
+    ------------
+    test_workspace: Path
+        Workspace fixture.
+    test_blackboard: Blackboard
+        Blackboard fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts workflow continuity and /convo reset behavior.
+    """
+    engine: NeuriSessionEngine = NeuriSessionEngine(
+        workspace_dir=test_workspace,
+        blackboard=test_blackboard,
+    )
+
+    async def fake_execute_workflow(
+        workflow_id: str,
+        on_event: Any = None,
+        timeout_seconds: float = 300.0,
+    ) -> list[NeuriTaskResult]:
+        """Simulate execution of ready nodes in workflow.
+
+        Parameters
+        ------------
+        workflow_id: str
+            Target workflow identifier.
+        on_event: Any
+            Optional event callback. Defaults to None.
+        timeout_seconds: float
+            Timeout ceiling. Defaults to 300.0.
+
+        Returns
+        --------
+            list[NeuriTaskResult]: list object
+                List of simulated execution results.
+        """
+        nodes = test_blackboard.get_ready_nodes(workflow_id)
+        results: list[NeuriTaskResult] = []
+        for n in nodes:
+            test_blackboard.update_node_state(
+                n.node_id,
+                TaskState.RUNNING,
+            )
+            test_blackboard.update_node_state(
+                n.node_id,
+                TaskState.COMPLETED,
+                summary_result=f"Done {n.node_id}",
+            )
+            results.append(
+                NeuriTaskResult(
+                    node_id=n.node_id,
+                    success=True,
+                    exit_code=0,
+                    summary=f"Output for {n.node_id}",
+                    total_tokens=100,
+                    cost_usd=0.01,
+                )
+            )
+        return results
+
+    monkeypatch.setattr(
+        engine._orchestrator, "execute_workflow", fake_execute_workflow
+    )
+
+    # Turn 1: First user prompt
+    turn1: ChatTurn = await engine.submit_user_input("Initial question about BET")
+    wf1_id: str | None = engine.current_workflow_id
+    assert wf1_id is not None
+    assert wf1_id in turn1.content
+
+    # Turn 2: Second user prompt continues the same workflow
+    turn2: ChatTurn = await engine.submit_user_input(
+        "Follow-up about skull-stripping"
+    )
+    wf2_id: str | None = engine.current_workflow_id
+    assert wf2_id == wf1_id
+    assert wf1_id in turn2.content
+
+    # Verify task nodes in the continuous workflow
+    nodes = test_blackboard.get_nodes_by_workflow(wf1_id)
+    assert len(nodes) >= 2
+    assert nodes[1].envelope is not None
+    assert "Initial question about BET" in nodes[1].envelope.system_prompt
+
+    # Turn 3: User resets conversation using /convo
+    turn_convo: ChatTurn = await engine.submit_user_input("/convo")
+    assert "New Conversation Started" in turn_convo.content
+
+    # Turn 4: Next prompt starts a brand-new workflow
+    turn4: ChatTurn = await engine.submit_user_input(
+        "A fresh new conversation on EEG"
+    )
+    wf4_id: str | None = engine.current_workflow_id
+    assert wf4_id is not None
+    assert wf4_id != wf1_id
+    assert wf4_id in turn4.content
+
+
+def test_slash_command_convo_routing(
+    slash_router: SlashCommandRouter,
+) -> None:
+    """Test /convo slash command execution and status subcommand.
+
+    Parameters
+    ------------
+    slash_router: SlashCommandRouter
+        Active router fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts /convo succeeds with new_conversation action and status.
+    """
+    res_new: SlashCommandResult = slash_router.execute("/convo")
+    assert res_new.success is True
+    assert res_new.action == "new_conversation"
+    assert "New Conversation Started" in res_new.markdown_output
+
+    res_status: SlashCommandResult = slash_router.execute("/convo status")
+    assert res_status.success is True
+    assert "Conversation Status" in res_status.markdown_output
 

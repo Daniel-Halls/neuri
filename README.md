@@ -62,7 +62,7 @@ uv run neuri
 ```
 
 #### What You Will See in the Interface:
-1. **Header & Workspace Banner:** Displays the active working directory, whether `.neuri/` has been initialized (`[Initialized]` vs. `[Type /init to setup]`), and the default harness.
+1. **Header & Workspace Banner:** Displays the active working directory, global workspace indicator (`[Global]`), and the default harness.
 2. **Scrollable Chat Canvas:** Renders user turns, structured assistant responses in GitHub-flavored markdown, and collapsible `🧠 Reasoning Trace` drawers containing raw thinking steps from sub-agents.
 3. **Prompt Input Box:** An interactive input area (`> Type a research prompt or /command...`) supporting both natural language instructions and slash commands.
 4. **Live Telemetry Footer:** Real-time status bar showing active harness backend, token consumption tally, and estimated cumulative USD cost.
@@ -75,8 +75,8 @@ Type any of the following commands into the chat prompt:
 
 | Slash Command | Arguments | Description | Example |
 | :--- | :--- | :--- | :--- |
-| `/init` | — | Initialize the current directory as a Neuri workspace (`.neuri/` configuration, SQLite Blackboard, provenance log, and BibTeX ledger). | `/init` |
 | `/skills` | `[list \| <id>]` | List all available neuroscience skills or inspect inputs, triggers, and modalities for a specific skill. | `/skills`<br>`/skills bids-standard` |
+| `/convo` | `[new \| status]` | Continue ongoing chat or start a fresh conversation session. | `/convo`<br>`/convo new` |
 | `/status` | — | View workspace directory, remote host, blackboard node counts, and token/cost telemetry. | `/status` |
 | `/harness` | `[<role> <harness_id>]` | Inspect current role-to-harness mappings or dynamically update which harness backs a sub-agent role. | `/harness`<br>`/harness neuroimaging_specialist codex` |
 | `/retry` | `<node_id>` | Manually reset and retry a DAG node paused in `WAITING_OPERATOR` state. | `/retry node_wf1_2_bet` |
@@ -128,6 +128,7 @@ Usage: neuri [OPTIONS]
 
 Options:
   -p, --print TEXT      Execute single prompt or slash command headlessly.
+  -c, --convo           Start a new conversation session.
   -v, --version         Display Neuri version information.
   -w, --workspace PATH  Custom workspace directory path.
   --help                Show this message and exit.
@@ -135,23 +136,24 @@ Options:
 
 ---
 
-## Project Workspace Structure (`.neuri/`)
+## Global Workspace Structure (`~/.neuri/`)
 
-Running `/init` creates a local `.neuri/` directory in your project root:
+Neuri operates on a global workspace located at `~/.neuri/`:
 
 ```text
-my_neuro_project/
-├── .neuri/
-│   ├── neuri.toml              # Project-specific harness routing & budget overrides
-│   ├── state.db                # SQLite WAL Blackboard (7 tables tracking DAG state)
-│   ├── execution_history.json  # Append-only provenance graph of executed pipelines
-│   ├── references.bib          # Anti-hallucination BibTeX ledger for cited tools
-│   ├── qa_snapshots/           # Visual QA PNG/HTML bundles
-│   └── skills/                 # Optional lab-custom SKILL.md extension packs
-└── ...
+~/.neuri/
+├── config.toml             # Global harness routing & budget overrides
+├── state.db                # SQLite WAL Blackboard (7 tables tracking DAG state)
+├── execution_history.json  # Append-only provenance graph of executed pipelines
+├── references.bib          # Anti-hallucination BibTeX ledger for cited tools
+├── brain/                  # Obsidian memory vault and documentation database
+├── skills/                 # Tier-0/1 neuroscience skills
+├── rules/                  # Operational guidelines and coding standards
+├── mcp/                    # Model Context Protocol servers configuration
+└── themes/                 # Terminal visual theme configurations
 ```
 
-### Configuration (`.neuri/neuri.toml`)
+### Configuration (`~/.neuri/config.toml`)
 
 ```toml
 [project]

@@ -27,8 +27,11 @@ from neuri.core.config import NeuriConfig
 from neuri.core.paths import PathResolver
 from neuri.core.preflight import PreflightCheckResult, PreflightValidator
 from neuri.core.schemas import (
+    ChatRole,
+    ChatTurn,
     NeuriTaskEnvelope,
     NeuriTaskResult,
+    RemoteArtifact,
     TaskEdge,
     TaskNode,
     TaskState,
@@ -283,16 +286,21 @@ class DAGOrchestrator:
         return resolved_m
 
     def plan_workflow_from_prompt(
-        self, prompt: str, workflow_id: str | None = None
+        self,
+        prompt: str,
+        workflow_id: str | None = None,
+        context_history: list[ChatTurn] | None = None,
     ) -> str:
-        """Analyze user prompt, identify skill matches, and build an initial DAG.
+        """Analyze user prompt, match skills, and build or extend a research DAG.
 
         Parameters
         ------------
         prompt: str
             Natural language research instruction from user.
         workflow_id: str | None
-            Optional workflow ID override. Defaults to generated ID.
+            Optional workflow ID override. Defaults to None (generated ID).
+        context_history: list[ChatTurn] | None
+            Prior conversational turns to provide context memory. Defaults to None.
 
         Returns
         --------
@@ -304,9 +312,38 @@ class DAGOrchestrator:
             if workflow_id is not None
             else f"wf_{uuid.uuid4().hex[:12]}"
         )
-        self._blackboard.create_workflow(
-            workflow_id=wf_id,
-            prompt=prompt,
+        existing_wf: dict[str, Any] | None = self._blackboard.get_workflow(wf_id)
+        if existing_wf is None:
+            self._blackboard.create_workflow(
+                workflow_id=wf_id,
+                prompt=prompt,
+            )
+        else:
+            self._blackboard.update_workflow_status(
+                workflow_id=wf_id,
+                status="RUNNING",
+            )
+
+        existing_nodes: list[TaskNode] = self._blackboard.get_nodes_by_workflow(
+            wf_id
+        )
+        start_step: int = len(existing_nodes) + 1
+
+        extra_ctx: str = ""
+        if context_history:
+            history_blocks: list[str] = ["### Prior Conversation History:"]
+            for turn in context_history[-10:]:
+                role_label: str = (
+                    "User" if turn.role == ChatRole.USER else "Assistant"
+                )
+                clean_text: str = turn.content.strip()
+                if len(clean_text) > 1000:
+                    clean_text = clean_text[:1000] + "... [truncated]"
+                history_blocks.append(f"**{role_label}**: {clean_text}")
+            extra_ctx = "\n\n".join(history_blocks)
+
+        existing_artifacts: list[RemoteArtifact] = (
+            self._blackboard.list_artifacts(workflow_id=wf_id)
         )
 
         active_harness: str = getattr(
@@ -316,7 +353,7 @@ class DAGOrchestrator:
 
         matched_skills: list[str] = self._match_skills_from_prompt(prompt)
         if not matched_skills:
-            node_id: str = f"node_{wf_id}_1_task"
+            node_id: str = f"node_{wf_id}_{start_step}_task"
             agent_role: str = "coordinator"
             route = self._config.harness_routing.get(agent_role)
             harness_id: str = active_harness
@@ -331,8 +368,9 @@ class DAGOrchestrator:
                 task_instruction=prompt,
                 harness_id=harness_id,
                 execution_mode=exec_mode,
+                input_artifacts=existing_artifacts,
                 config=self._config,
-                extra_context="",
+                extra_context=extra_ctx,
                 model=model_id,
             )
             envelope: NeuriTaskEnvelope = base_env.model_copy(
@@ -353,8 +391,9 @@ class DAGOrchestrator:
             return wf_id
 
         prev_node_id: str | None = None
-        for idx, skill_id in enumerate(matched_skills, start=1):
-            node_id = f"node_{wf_id}_{idx}_{skill_id.replace('-', '_')}"
+        for idx, skill_id in enumerate(matched_skills):
+            step_num: int = start_step + idx
+            node_id = f"node_{wf_id}_{step_num}_{skill_id.replace('-', '_')}"
             agent_role = self.SKILL_ROLE_MAP.get(
                 skill_id, "neuroimaging_specialist"
             )
@@ -378,8 +417,9 @@ class DAGOrchestrator:
                 ),
                 harness_id=harness_id,
                 execution_mode=exec_mode,
+                input_artifacts=existing_artifacts,
                 config=self._config,
-                extra_context="",
+                extra_context=extra_ctx,
                 model=model_id,
             )
             envelope = base_env.model_copy(
