@@ -14,6 +14,8 @@ import asyncio
 import contextlib
 from datetime import UTC, datetime, timezone
 from pathlib import Path
+import re
+import time
 from typing import Any, ClassVar
 
 from textual import events
@@ -92,6 +94,51 @@ def render_meter(
         (Glyphs.BAR_EMPTY * (width - filled), "$border"),
     )
     return meter
+
+
+class TerminalText:
+    """Normalizes untrusted text so terminals and Textual agree on widths.
+
+    Emoji, variation selectors and zero-width joiners are measured one way by
+    Textual and drawn another way by many terminals. The mismatch shifts
+    everything to the right on that row, which misaligns the Machines box.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        TerminalText: TerminalText class
+            Namespace for terminal-width-safe text helpers.
+    """
+
+    UNSAFE_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+        "[\u200b-\u200d\u2060\ufe00-\ufe0f\U0001f000-\U0001faff"
+        "\u231a\u231b\u23e9-\u23f3\u23f8-\u23fa\u25fd\u25fe\u2614\u2615"
+        "\u2648-\u2653\u267f\u2693\u26a0\u26a1\u26aa\u26ab\u26bd\u26be"
+        "\u26c4\u26c5\u26ce\u26d4\u26ea\u26f2\u26f3\u26f5\u26fa\u26fd"
+        "\u2705\u270a\u270b\u2728\u274c\u274e\u2753-\u2755\u2757"
+        "\u2795-\u2797\u27b0\u27bf\u2b1b\u2b1c\u2b50\u2b55]"
+    )
+
+    @classmethod
+    def sanitize(cls, text: str) -> str:
+        """Strip characters whose terminal display width is unreliable.
+
+        Parameters
+        ------------
+        text: str
+            Arbitrary text, typically model output.
+
+        Returns
+        --------
+            str: string object
+                Text with emoji, variation selectors and zero-width
+                characters removed.
+        """
+        cleaned: str = cls.UNSAFE_PATTERN.sub("", text)
+        return cleaned
 
 
 def card_header(glyph: str, label: str, style: str, stamp: str) -> Content:
@@ -193,13 +240,18 @@ class MessageCard(Static):
                 card_header(Glyphs.PROMPT, "you", "$primary", time_str),
                 classes="card-header",
             )
-            yield Static(Content(self._turn.content), classes="card-body")
+            yield Static(
+                Content(TerminalText.sanitize(self._turn.content)),
+                classes="card-body",
+            )
         elif self._kind == "shell":
             yield Static(
                 card_header(Glyphs.PROMPT, "shell", "$success", time_str),
                 classes="card-header",
             )
-            yield Markdown(self._turn.content, classes="card-body")
+            yield Markdown(
+                TerminalText.sanitize(self._turn.content), classes="card-body"
+            )
         else:
             role_label: str = (
                 f"specialist · {self._turn.node_id}"
@@ -213,10 +265,12 @@ class MessageCard(Static):
             if self._turn.thinking_trace:
                 with Collapsible(title="reasoning trace", collapsed=True):
                     yield Static(
-                        Content(self._turn.thinking_trace),
+                        Content(TerminalText.sanitize(self._turn.thinking_trace)),
                         classes="thinking-text",
                     )
-            yield Markdown(self._turn.content, classes="card-body")
+            yield Markdown(
+                TerminalText.sanitize(self._turn.content), classes="card-body"
+            )
 
 
 class LiveFeedbackCard(Static):
@@ -277,7 +331,9 @@ class LiveFeedbackCard(Static):
             classes="card-header",
         )
         yield Static(
-            f"[dim cyan]{self._status_text}[/dim cyan]",
+            Content.assemble(
+                (TerminalText.sanitize(self._status_text), "$muted")
+            ),
             id="live-status-line",
         )
         yield Static(
@@ -309,7 +365,11 @@ class LiveFeedbackCard(Static):
             status_widget: Static = self.query_one(
                 "#live-status-line", Static
             )
-            status_widget.update(f"[dim cyan] {text}[/dim cyan]")
+            status_widget.update(
+                Content.assemble(
+                    (f" {TerminalText.sanitize(text)}", "$muted")
+                )
+            )
         except Exception:
             pass
 
@@ -331,8 +391,12 @@ class LiveFeedbackCard(Static):
             think_widget: Static = self.query_one(
                 "#live-thinking-content", Static
             )
-            accumulated: str = "".join(self._thinking_chunks)
-            think_widget.update(f"[dim italic] {accumulated}[/dim italic]")
+            accumulated: str = TerminalText.sanitize(
+                "".join(self._thinking_chunks)
+            )
+            think_widget.update(
+                Content.assemble((f" {accumulated}", "italic $muted"))
+            )
         except Exception:
             pass
 
@@ -354,7 +418,9 @@ class LiveFeedbackCard(Static):
             body_widget: Static = self.query_one(
                 "#live-body-content", Static
             )
-            body_widget.update("".join(self._content_chunks))
+            body_widget.update(
+                Content(TerminalText.sanitize("".join(self._content_chunks)))
+            )
         except Exception:
             pass
 
@@ -446,7 +512,10 @@ class ShellResultCard(Static):
         """
         res: ShellExecutionResult = self._result
         if res.stdout.strip():
-            yield Static(Content(res.stdout.rstrip()), classes="shell-stdout")
+            yield Static(
+                Content(TerminalText.sanitize(res.stdout.rstrip())),
+                classes="shell-stdout",
+            )
         if res.stderr.strip():
             yield Static(
                 Content.assemble((res.stderr.rstrip(), "$error")),
@@ -1539,6 +1608,8 @@ class NeuriChatApp(App[None]):
         "/machines, /status, /help, /exit)..."
     )
 
+    SCROLL_INTERVAL: ClassVar[float] = 0.1
+
     CSS = """
     Screen {
         background: $background;
@@ -1785,6 +1856,7 @@ class NeuriChatApp(App[None]):
         self._is_shell_mode: bool = False
         self._available_machines: list[str] = ["localhost"]
         self._selected_machine_index: int = 0
+        self._last_scroll_ts: float = 0.0
         self._shell_executor: ShellCommandExecutor = ShellCommandExecutor(
             workspace_dir=self._workspace_dir
         )
@@ -2445,6 +2517,30 @@ class NeuriChatApp(App[None]):
             self._telemetry_bar.status_text = "Ready"
             self._sync_harness_and_model_ui()
 
+    def _scroll_chat_end_throttled(self) -> None:
+        """Scroll chat to the end at most every SCROLL_INTERVAL seconds.
+
+        Scrolling on every streamed token forces a full relayout and repaint
+        per token, which amplifies terminal repaint glitches.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Scrolls the chat canvas when the throttle window elapsed.
+        """
+        now: float = time.monotonic()
+        if now - self._last_scroll_ts < self.SCROLL_INTERVAL:
+            return
+        self._last_scroll_ts = now
+        scroll_area: VerticalScroll = self.query_one(
+            "#chat-scroll", VerticalScroll
+        )
+        scroll_area.scroll_end(animate=False)
+
     def _handle_session_event(self, ev: SessionEvent) -> None:
         """Handle incoming SessionEvent from session engine.
 
@@ -2495,10 +2591,7 @@ class NeuriChatApp(App[None]):
             if self._current_live_card is not None and delta:
                 self._current_live_card.append_thinking(delta)
                 try:
-                    scroll_area: VerticalScroll = self.query_one(
-                        "#chat-scroll", VerticalScroll
-                    )
-                    scroll_area.scroll_end(animate=False)
+                    self._scroll_chat_end_throttled()
                 except Exception:
                     pass
 
@@ -2508,10 +2601,7 @@ class NeuriChatApp(App[None]):
             if self._current_live_card is not None and c_delta:
                 self._current_live_card.append_content(c_delta)
                 try:
-                    scroll_area = self.query_one(
-                        "#chat-scroll", VerticalScroll
-                    )
-                    scroll_area.scroll_end(animate=False)
+                    self._scroll_chat_end_throttled()
                 except Exception:
                     pass
 
@@ -2526,10 +2616,7 @@ class NeuriChatApp(App[None]):
             if self._current_live_card is not None:
                 self._current_live_card.set_status(msg)
                 try:
-                    scroll_area = self.query_one(
-                        "#chat-scroll", VerticalScroll
-                    )
-                    scroll_area.scroll_end(animate=False)
+                    self._scroll_chat_end_throttled()
                 except Exception:
                     pass
 
