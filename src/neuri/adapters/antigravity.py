@@ -6,7 +6,6 @@ Wraps the Antigravity CLI (agy) for headless streaming NDJSON execution
 """
 
 from pathlib import Path
-from typing import Any
 
 from neuri.adapters.base import BaseHarnessAdapter
 from neuri.core.schemas import NeuriTaskEnvelope
@@ -126,6 +125,7 @@ class AntigravityAdapter(BaseHarnessAdapter):
             full_prompt,
             "--output-format",
             "stream-json",
+            "--dangerously-skip-permissions",
         ]
         if envelope.model:
             cmd.extend(["--model", envelope.model])

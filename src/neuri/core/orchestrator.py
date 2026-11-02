@@ -5,11 +5,11 @@ harness dispatch, bounded auto-retries (N=2), circuit breaker recovery, and
 human operator escalation in SQLite WAL Blackboard.
 """
 
+import contextlib
+import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-import uuid
 
 import yaml
 
@@ -26,19 +26,18 @@ from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig
 from neuri.core.paths import PathResolver
 from neuri.core.preflight import PreflightCheckResult, PreflightValidator
-from neuri.remote.remote_probe import RemoteIntent, RemoteProbePlanner
-from neuri.remote.shell_executor import (
-    ShellCommandExecutor,
-    ShellExecutionResult,
-)
 from neuri.core.schemas import (
     NeuriTaskEnvelope,
     NeuriTaskResult,
-    RemoteArtifact,
     TaskEdge,
     TaskNode,
     TaskState,
     TelemetryEvent,
+)
+from neuri.remote.remote_probe import RemoteIntent, RemoteProbePlanner
+from neuri.remote.shell_executor import (
+    ShellCommandExecutor,
+    ShellExecutionResult,
 )
 
 
@@ -169,7 +168,7 @@ class DAGOrchestrator:
                 role_name="coordinator",
                 system_prompt="You are the Neuri Coordinator.",
                 skill_ids=[],
-                mcp_tools=[],
+                mcp_tools=["neuri_docs"],
             ),
             "pipeline_engineer": PipelineEngineerAgent(),
             "neuroimaging_specialist": NeuroimagingSpecialistAgent(),
@@ -333,6 +332,7 @@ class DAGOrchestrator:
                 harness_id=harness_id,
                 execution_mode=exec_mode,
                 config=self._config,
+                extra_context="",
                 model=model_id,
             )
             envelope: NeuriTaskEnvelope = base_env.model_copy(
@@ -354,24 +354,22 @@ class DAGOrchestrator:
 
         prev_node_id: str | None = None
         for idx, skill_id in enumerate(matched_skills, start=1):
-            node_id: str = f"node_{wf_id}_{idx}_{skill_id.replace('-', '_')}"
-            agent_role: str = self.SKILL_ROLE_MAP.get(
+            node_id = f"node_{wf_id}_{idx}_{skill_id.replace('-', '_')}"
+            agent_role = self.SKILL_ROLE_MAP.get(
                 skill_id, "neuroimaging_specialist"
             )
             route = self._config.harness_routing.get(agent_role)
-            harness_id: str = active_harness
-            exec_mode: str = route.mode if route is not None else "headless_json"
-            model_id: str | None = active_model
+            harness_id = active_harness
+            exec_mode = route.mode if route is not None else "headless_json"
+            model_id = active_model
 
             resolved_dir: Path | None = PathResolver.resolve_skill_dir(skill_id)
             skill_paths: list[str] = (
                 [str(resolved_dir)] if resolved_dir is not None else [skill_id]
             )
 
-            specialist: BaseSpecialistAgent = self._resolve_specialist_agent(
-                agent_role
-            )
-            base_env: NeuriTaskEnvelope = specialist.build_envelope(
+            specialist = self._resolve_specialist_agent(agent_role)
+            base_env = specialist.build_envelope(
                 workflow_id=wf_id,
                 node_id=node_id,
                 task_instruction=(
@@ -381,12 +379,13 @@ class DAGOrchestrator:
                 harness_id=harness_id,
                 execution_mode=exec_mode,
                 config=self._config,
+                extra_context="",
                 model=model_id,
             )
-            envelope: NeuriTaskEnvelope = base_env.model_copy(
+            envelope = base_env.model_copy(
                 update={"skill_paths": skill_paths}
             )
-            node: TaskNode = TaskNode(
+            node = TaskNode(
                 node_id=node_id,
                 workflow_id=wf_id,
                 agent_role=agent_role,
@@ -640,11 +639,26 @@ class DAGOrchestrator:
                 Final execution result.
         """
         # 1. Deterministic pre-flight check
+        if node.envelope is None:
+            self._blackboard.update_node_state(
+                node.node_id,
+                TaskState.FAILED,
+                summary_result="Node has no execution envelope.",
+            )
+            return NeuriTaskResult(
+                node_id=node.node_id,
+                success=False,
+                exit_code=1,
+                summary="Node has no execution envelope",
+                error_message="Missing execution envelope",
+            )
+
+        active_envelope: NeuriTaskEnvelope = node.envelope
         self._blackboard.update_node_state(
             node.node_id, TaskState.PREFLIGHT_CHECK
         )
         preflight_res: PreflightCheckResult = self._validator.validate_envelope(
-            node.envelope
+            active_envelope
         )
         if not preflight_res.passed:
             err_summary: str = "; ".join(preflight_res.errors)
@@ -695,17 +709,18 @@ class DAGOrchestrator:
                 self._shell_executor.get_available_hosts(self._config)
             )
             intent: RemoteIntent | None = planner.detect(
-                node.envelope.task_instruction
+                active_envelope.task_instruction
             )
             if intent is not None and intent.command is None:
                 return self._tool_gap_result(node, adapter, intent)
             if intent is not None:
                 augmented: str = await self._augment_with_remote_output(
-                    node.envelope.task_instruction, intent
+                    active_envelope.task_instruction, intent
                 )
-                node.envelope = node.envelope.model_copy(
+                active_envelope = active_envelope.model_copy(
                     update={"task_instruction": augmented}
                 )
+                node.envelope = active_envelope
                 self._blackboard.update_node_envelope(
                     node.node_id, node.envelope
                 )
@@ -718,25 +733,26 @@ class DAGOrchestrator:
             avail_for_adapter = []
 
         if avail_for_adapter and (
-            node.envelope.model is None
-            or node.envelope.model not in avail_for_adapter
+            active_envelope.model is None
+            or active_envelope.model not in avail_for_adapter
         ):
             valid_model: str | None = self.resolve_active_model(
                 adapter.harness_id
             )
-            node.envelope = node.envelope.model_copy(
+            active_envelope = active_envelope.model_copy(
                 update={
                     "harness_id": adapter.harness_id,
                     "model": valid_model,
                 }
             )
             node.model = valid_model
+            node.envelope = active_envelope
             self._blackboard.update_node_envelope(node.node_id, node.envelope)
 
         if on_event is not None:
             model_info: str = (
-                f" ({node.envelope.model})"
-                if node.envelope is not None and node.envelope.model
+                f" ({active_envelope.model})"
+                if active_envelope.model
                 else ""
             )
             dispatch_ev: TelemetryEvent = TelemetryEvent(
@@ -753,7 +769,7 @@ class DAGOrchestrator:
             on_event(dispatch_ev)
 
         exec_res: NeuriTaskResult = await adapter.execute(
-            envelope=node.envelope,
+            envelope=active_envelope,
             on_event=on_event,
             timeout_seconds=timeout_seconds,
             blackboard=self._blackboard,
@@ -778,12 +794,10 @@ class DAGOrchestrator:
         # 3. Handle outcome via QA_REVIEW and CriticQAAgent
         if exec_res.success:
             for art in exec_res.artifacts_emitted:
-                try:
+                with contextlib.suppress(Exception):
                     self._blackboard.register_artifact(
                         art, workflow_id=node.workflow_id, node_id=node.node_id
                     )
-                except Exception:
-                    pass
             self._blackboard.update_node_state(
                 node.node_id,
                 TaskState.QA_REVIEW,
@@ -798,7 +812,7 @@ class DAGOrchestrator:
         # 4. Handle failure with bounded retries (N=2)
         current_attempt: int = node.attempt + 1
         if current_attempt < node.max_retries:
-            new_envelope: NeuriTaskEnvelope = node.envelope.model_copy(
+            new_envelope: NeuriTaskEnvelope = active_envelope.model_copy(
                 update={
                     "attempt_number": current_attempt + 1,
                     "diagnostic_feedback": exec_res.error_message,

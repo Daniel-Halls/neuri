@@ -38,7 +38,7 @@ class PipelineEngineerAgent(BaseSpecialistAgent):
             role_name="pipeline_engineer",
             system_prompt=self.DEFAULT_PROMPT,
             skill_ids=["bids-standard"],
-            mcp_tools=["openneuro", "git_forge", "neuro_resources"],
+            mcp_tools=["neuri_docs", "openneuro", "git_forge", "neuro_resources"],
         )
 
 

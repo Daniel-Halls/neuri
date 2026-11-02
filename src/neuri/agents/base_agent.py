@@ -132,6 +132,7 @@ class BaseSpecialistAgent:
 
         mcp_map: dict[str, dict[str, Any]] = {}
         module_lookup: dict[str, str] = {
+            "neuri_docs": "neuri.mcp_servers.mcp_docs",
             "remote_worker": "neuri_worker.mcp_server",
             "openneuro": "neuri.mcp_servers.mcp_openneuro",
             "git_forge": "neuri.mcp_servers.mcp_git_forge",
