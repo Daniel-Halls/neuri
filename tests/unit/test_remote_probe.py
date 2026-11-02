@@ -98,6 +98,27 @@ class TestRemoteProbe:
         ).detect("go on axon and run module avail")
         assert intent == RemoteIntent(host=fqdn, command="module avail 2>&1")
 
+    def test_terminal_text_sanitize(self) -> None:
+        """Emoji and variation selectors are stripped; box chars kept.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Asserts sanitized output.
+        """
+        from neuri.ui.terminal_chat import TerminalText
+
+        raw: str = (
+            "\U0001f50d Report \u26a0\ufe0f ok \u2705 [PASS] "
+            "\u250c\u2500\u2510 \u258c"
+        )
+        expected: str = " Report  ok  [PASS] \u250c\u2500\u2510 \u258c"
+        assert TerminalText.sanitize(raw) == expected
+
     def test_no_intent_cases(self) -> None:
         """Unrelated, host-only, augmented and local texts are ignored.
 
