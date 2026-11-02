@@ -26,7 +26,7 @@ from neuri.brain import (
     ObservationCategory,
 )
 from neuri.core.blackboard import Blackboard
-from neuri.core.config import NeuriConfig, init_project_workspace, load_config
+from neuri.core.config import NeuriConfig
 from neuri.core.installer import NeuriInstaller
 from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.paths import PathResolver
@@ -108,7 +108,8 @@ class SlashCommandRouter:
     """
 
     SUPPORTED_COMMANDS: list[str] = [
-        "/init",
+        "/convo",
+        "/chat",
         "/install",
         "/skills",
         "/status",
@@ -224,8 +225,8 @@ class SlashCommandRouter:
         cmd: str = parts[0].lower()
         args: list[str] = parts[1:]
 
-        if cmd == "/init":
-            return self._handle_init()
+        if cmd in ("/convo", "/chat", "/conversation"):
+            return self._handle_convo(args)
         elif cmd == "/install":
             return self._handle_install(args)
         elif cmd == "/skills":
@@ -282,42 +283,59 @@ class SlashCommandRouter:
                 ),
             )
 
-    def _handle_init(self) -> SlashCommandResult:
-        """Initialize .neuri workspace in current directory.
+    def _handle_convo(self, args: list[str]) -> SlashCommandResult:
+        """Start a new conversation session or inspect active conversation status.
 
         Parameters
         ------------
-        None
+        args: list[str]
+            Optional subcommands (e.g. 'new', 'status').
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
-                Initialization result card.
+                Confirmation card for new conversation or active status.
         """
-        try:
-            ws_path: Path = init_project_workspace(self._workspace_dir)
+        sub: str = args[0].lower().strip() if args else "new"
+
+        if sub == "status":
+            wf_info: str = "None"
+            try:
+                workflows = self._blackboard.list_workflows()
+                if workflows:
+                    latest = workflows[-1]
+                    wf_info = (
+                        f"`{latest['workflow_id']}` "
+                        f"({latest.get('status', 'UNKNOWN')})"
+                    )
+            except Exception:
+                pass
             msg: str = (
-                f"### Workspace Initialized\n\n"
-                f"Successfully initialized Neuri workspace at:\n"
-                f"- Directory: `{ws_path}`\n"
-                f"- Configuration: `{ws_path / 'neuri.toml'}`\n"
-                f"- Blackboard: `{ws_path / 'state.db'}`\n"
-                f"- Provenance Log: `{ws_path / 'execution_history.json'}`\n"
-                f"- References Ledger: `{ws_path / 'references.bib'}`\n"
+                f"### Conversation Status\n\n"
+                f"- **Active Workflow:** {wf_info}\n\n"
+                f"*Type `/convo` to start a new chat session.*"
             )
-            return SlashCommandResult(
-                command="/init",
+            res_status: SlashCommandResult = SlashCommandResult(
+                command="/convo",
                 success=True,
                 markdown_output=msg,
-                data={"workspace_path": str(ws_path)},
-                action="reload_config",
+                data={"status": "active"},
             )
-        except Exception as exc:
-            return SlashCommandResult(
-                command="/init",
-                success=False,
-                markdown_output=f"Failed to initialize workspace: {exc}",
-            )
+            return res_status
+
+        confirm_msg: str = (
+            "### New Conversation Started\n\n"
+            "A new conversation session has been initialized. Subsequent "
+            "prompts will execute in a fresh research workflow."
+        )
+        res_new: SlashCommandResult = SlashCommandResult(
+            command="/convo",
+            success=True,
+            markdown_output=confirm_msg,
+            action="new_conversation",
+            data={"action": "new_conversation"},
+        )
+        return res_new
 
     def _handle_install(self, args: list[str]) -> SlashCommandResult:
         """Install or synchronize Neuri base environment into ~/.neuri.
@@ -460,7 +478,8 @@ class SlashCommandRouter:
             SlashCommandResult: SlashCommandResult instance
                 Rendered status dashboard card.
         """
-        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
+        global_dir: Path = Path.home() / ".neuri"
+        is_global_init: bool = global_dir.is_dir()
         remote_host: str = self._config.project.default_remote_host
 
         active_harness: str = getattr(
@@ -473,7 +492,7 @@ class SlashCommandRouter:
             active_model if active_model else "(harness default)"
         )
 
-        init_status: str = "Yes" if is_init else "No (type /init to initialize)"
+        global_status: str = "Active" if is_global_init else "Initialized"
         cost_limit: str = f"${self._config.budgets.max_workflow_cost_usd:.2f}"
 
         wf_info: str = "None"
@@ -513,7 +532,7 @@ class SlashCommandRouter:
         msg: str = (
             f"### Neuri System Status\n\n"
             f"- **Workspace Directory:** `{self._workspace_dir}`\n"
-            f"- **Initialized (.neuri):** `{init_status}`\n"
+            f"- **Global Workspace (~/.neuri):** `{global_status}`\n"
             f"- **Default Remote Host:** `{remote_host}`\n"
             f"- **Active Harness:** `{active_harness}`\n"
             f"- **Active Model:** `{active_model_str}`\n"
@@ -529,7 +548,7 @@ class SlashCommandRouter:
             success=True,
             markdown_output=msg,
             data={
-                "workspace_initialized": is_init,
+                "workspace_initialized": True,
                 "remote_host": remote_host,
                 "default_harness": active_harness,
                 "default_model": active_model,
@@ -2778,7 +2797,7 @@ class SlashCommandRouter:
             "### Neuri Interactive Commands\n\n"
             "| Command | Description |\n"
             "| :--- | :--- |\n"
-            "| `/init` | Initialize `.neuri/` workspace configuration and state |\n"
+            "| `/convo` | Start a new chat session or reset conversation |\n"
             "| `/install` | Install base prompt, skills, MCP, and rules |\n"
             "| `/skills` | Browse Tier-0 neuroscience skills catalog |\n"
             "| `/skills <id>` | Inspect inputs, triggers, and modalities of a skill |\n"

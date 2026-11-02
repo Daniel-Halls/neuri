@@ -131,6 +131,7 @@ class NeuriSessionEngine:
         self._listeners: list[Callable[[SessionEvent], None]] = []
         self._turns: list[ChatTurn] = []
         self._accumulated_thinking: list[str] = []
+        self._current_workflow_id: str | None = None
 
     def _resolve_db_path(self) -> Path:
         """Resolve the SQLite database path based on workspace state.
@@ -144,14 +145,14 @@ class NeuriSessionEngine:
             Path: Path object
                 Path to state.db.
         """
-        ws_dot_dir: Path = self._workspace_dir / ".neuri"
-        if ws_dot_dir.is_dir():
-            path: Path = ws_dot_dir / "state.db"
-            return path
         home_dot_dir: Path = Path.home() / ".neuri"
         if home_dot_dir.is_dir():
             path_home: Path = home_dot_dir / "state.db"
             return path_home
+        ws_dot_dir: Path = self._workspace_dir / ".neuri"
+        if ws_dot_dir.is_dir():
+            path: Path = ws_dot_dir / "state.db"
+            return path
         fallback: Path = self._workspace_dir / ".neuri_tmp_state.db"
         return fallback
 
@@ -234,6 +235,40 @@ class NeuriSessionEngine:
         """
         res: list[ChatTurn] = list(self._turns)
         return res
+
+    @property
+    def current_workflow_id(self) -> str | None:
+        """Active conversation workflow identifier.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str | None: string or None
+                Identifier of ongoing workflow session or None if not started.
+        """
+        w_id: str | None = self._current_workflow_id
+        return w_id
+
+    def start_new_conversation(self) -> str:
+        """Reset conversation session to begin a fresh research workflow.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Generated workflow identifier for the fresh conversation.
+        """
+        new_wf_id: str = f"wf_{uuid.uuid4().hex[:12]}"
+        self._current_workflow_id = new_wf_id
+        self._turns.clear()
+        self._accumulated_thinking.clear()
+        return new_wf_id
 
     def subscribe(self, listener: Callable[[SessionEvent], None]) -> None:
         """Subscribe a callable listener to receive live SessionEvents.
@@ -363,6 +398,9 @@ class NeuriSessionEngine:
             self._slash_router._blackboard = self._blackboard
             self._slash_router._orchestrator = self._orchestrator
 
+        if cmd_res.action == "new_conversation":
+            self.start_new_conversation()
+
         # Emit status update event
         self.emit_event(
             SessionEventType.STATUS_UPDATE,
@@ -461,8 +499,18 @@ class NeuriSessionEngine:
         """
         self._accumulated_thinking.clear()
 
-        # Step 1: Plan workflow
-        wf_id: str = self._orchestrator.plan_workflow_from_prompt(prompt)
+        # Step 1: Plan workflow in active conversation or start new
+        if self._current_workflow_id is None:
+            self._current_workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
+        wf_id: str = self._current_workflow_id
+
+        prior_turns: list[ChatTurn] = self._turns[:-1]
+
+        self._orchestrator.plan_workflow_from_prompt(
+            prompt=prompt,
+            workflow_id=wf_id,
+            context_history=prior_turns,
+        )
         self.emit_event(
             SessionEventType.STATUS_UPDATE,
             {
@@ -525,7 +573,9 @@ class NeuriSessionEngine:
         )
         summary_lines: list[str] = response_blocks
 
-        dot_neuri: Path = self._workspace_dir / ".neuri"
+        dot_neuri: Path = Path.home() / ".neuri"
+        if not dot_neuri.is_dir():
+            dot_neuri = self._workspace_dir / ".neuri"
         if dot_neuri.is_dir():
             try:
                 self._blackboard.export_provenance_log(

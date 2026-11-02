@@ -109,6 +109,14 @@ class NeuriCLI:
                 help="Active AI harness across all roles (agy, ollama, codex).",
             ),
         ] = None,
+        convo: Annotated[
+            bool,
+            typer.Option(
+                "--convo",
+                "-c",
+                help="Start a new conversation session.",
+            ),
+        ] = False,
     ) -> None:
         """Process CLI flags and launch either interactive chat or headless turn.
 
@@ -129,6 +137,8 @@ class NeuriCLI:
             Active AI model override across harnesses. Defaults to None.
         harness: str | None
             Active AI harness override across roles. Defaults to None.
+        convo: bool
+            Start a fresh conversation session. Defaults to False.
 
         Returns
         --------
@@ -159,6 +169,7 @@ class NeuriCLI:
                 workspace_dir=target_workspace,
                 model=model,
                 harness=harness,
+                new_convo=convo,
             )
             return
 
@@ -168,6 +179,7 @@ class NeuriCLI:
                 workspace_dir=target_workspace,
                 model=model,
                 harness=harness,
+                new_convo=convo,
             )
             return
 
@@ -176,6 +188,7 @@ class NeuriCLI:
             workspace_dir=target_workspace,
             model=model,
             harness=harness,
+            new_convo=convo,
         )
 
     def _run_headless(
@@ -184,6 +197,7 @@ class NeuriCLI:
         workspace_dir: Path,
         model: str | None = None,
         harness: str | None = None,
+        new_convo: bool = False,
     ) -> None:
         """Execute a prompt headlessly with real-time feedback streamed to terminal.
 
@@ -197,6 +211,8 @@ class NeuriCLI:
             Active AI model override across harnesses. Defaults to None.
         harness: str | None
             Active AI harness override across roles. Defaults to None.
+        new_convo: bool
+            Start a fresh conversation session. Defaults to False.
 
         Returns
         --------
@@ -208,6 +224,8 @@ class NeuriCLI:
             model=model,
             harness=harness,
         )
+        if new_convo:
+            engine.start_new_conversation()
 
         has_streamed_content: bool = False
         is_in_thinking: bool = False
@@ -318,6 +336,7 @@ class NeuriCLI:
         workspace_dir: Path,
         model: str | None = None,
         harness: str | None = None,
+        new_convo: bool = False,
     ) -> None:
         """Launch the full Textual interactive chat window in terminal.
 
@@ -329,6 +348,8 @@ class NeuriCLI:
             Active AI model override. Defaults to None.
         harness: str | None
             Active AI harness override. Defaults to None.
+        new_convo: bool
+            Start a fresh conversation session. Defaults to False.
 
         Returns
         --------
@@ -340,6 +361,8 @@ class NeuriCLI:
             initial_model=model,
             initial_harness=harness,
         )
+        if new_convo:
+            app_instance.engine.start_new_conversation()
         app_instance.run()
 
     def install(

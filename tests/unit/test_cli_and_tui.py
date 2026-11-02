@@ -116,7 +116,7 @@ def test_cli_headless_print_help(cli_runner: CliRunner) -> None:
     cli: NeuriCLI = NeuriCLI()
     res: Result = cli_runner.invoke(cli.cli_app, ["-p", "/help"])
     assert res.exit_code == 0
-    assert "/init" in res.stdout
+    assert "/status" in res.stdout
     assert "/skills" in res.stdout
     assert "/model" in res.stdout
 

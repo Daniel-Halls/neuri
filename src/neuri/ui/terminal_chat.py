@@ -708,11 +708,8 @@ class WelcomeCard(Static):
             Content: Content object
                 Styled status line.
         """
-        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
         state_part: tuple[str, str] = (
-            (" Initialized ", "bold $selection-fg on $selection-bg")
-            if is_init
-            else (" Uninitialized - run /init ", "bold $background on $warning")
+            (" Global ", "bold $selection-fg on $selection-bg")
         )
         theme_name: str = str(getattr(self.app, "theme", "") or "default")
         sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
@@ -1148,7 +1145,7 @@ class SlashAutocompletePopup(Static):
         ("/theme", "List or switch visual color themes"),
         ("/retry", "Resume a node paused in WAITING_OPERATOR"),
         ("/cancel", "Cancel a paused node in WAITING_OPERATOR"),
-        ("/init", "Initialize .neuri/ workspace configuration"),
+        ("/convo", "Start a new conversation session"),
         ("/clear", "Clear the chat screen (preserves SQLite state)"),
         ("/help", "Show interactive command reference"),
         ("/exit", "Exit the Neuri chat interface"),
@@ -1698,7 +1695,7 @@ class NeuriChatApp(App[None]):
     SUB_TITLE = "The friendly neuroscientist"
 
     DEFAULT_PLACEHOLDER: ClassVar[str] = (
-        "Type a research prompt or /command (/init, /skills, "
+        "Type a research prompt or /command (/skills, /convo, "
         "/machines, /status, /help, /exit)..."
     )
 
@@ -2005,6 +2002,22 @@ class NeuriChatApp(App[None]):
         return defaults
 
     @property
+    def engine(self) -> NeuriSessionEngine:
+        """Active session engine instance.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NeuriSessionEngine: NeuriSessionEngine instance
+                Underlying session engine.
+        """
+        target: NeuriSessionEngine = self._engine
+        return target
+
+    @property
     def history_manager(self) -> PromptHistoryManager:
         """Return the active command and prompt history manager.
 
@@ -2047,11 +2060,8 @@ class NeuriChatApp(App[None]):
             Content: Content object
                 Brand, workspace, init state, harness, and active model summary.
         """
-        is_init: bool = (self._workspace_dir / ".neuri").is_dir()
         state_part: tuple[str, str] = (
-            (f"{Glyphs.DOT_ON} initialized", "$success")
-            if is_init
-            else (f"{Glyphs.DOT_OFF} uninitialized (/init)", "$warning")
+            (f"{Glyphs.DOT_ON} global", "$success")
         )
         sep: tuple[str, str] = (f" {Glyphs.SEP} ", "$border")
         active_h: str = self._engine.harness
