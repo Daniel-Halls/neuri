@@ -42,7 +42,7 @@ class NeuroimagingSpecialistAgent(BaseSpecialistAgent):
                 "fmri-postproc",
                 "dwi-tractography",
             ],
-            mcp_tools=["neuro_resources", "scholar"],
+            mcp_tools=["neuri_docs", "neuro_resources", "scholar"],
         )
 
 

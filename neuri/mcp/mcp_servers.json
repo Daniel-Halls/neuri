@@ -1,43 +1,76 @@
 {
   "mcpServers": {
+    "neuri_docs": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_docs"
+      ],
+      "description": "Deterministic neuroimaging documentation server querying commands.md, functions.md, and documentation.md."
+    },
     "remote_worker": {
       "command": "python3",
-      "args": ["-m", "neuri_worker.mcp_server"],
+      "args": [
+        "-m",
+        "neuri_worker.mcp_server"
+      ],
       "description": "Remote compute worker for deterministic neuro header extraction and PHI sanitization."
     },
     "scholar": {
       "command": "python3",
-      "args": ["-m", "neuri.mcp_servers.mcp_scholar"],
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_scholar"
+      ],
       "description": "Scientific literature and citation verification server via CrossRef and PubMed."
     },
     "openneuro": {
       "command": "python3",
-      "args": ["-m", "neuri.mcp_servers.mcp_openneuro"],
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_openneuro"
+      ],
       "description": "OpenNeuro public neuroscience dataset discovery and DataLad ingestion."
     },
     "git_forge": {
       "command": "python3",
-      "args": ["-m", "neuri.mcp_servers.mcp_git_forge"],
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_git_forge"
+      ],
       "description": "Git repository forge client for reproducible pipeline tracking."
     },
     "neuro_resources": {
       "command": "python3",
-      "args": ["-m", "neuri.mcp_servers.mcp_resources"],
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_resources"
+      ],
       "description": "TemplateFlow brain atlases and standardized coordinate space resources."
     },
     "basic-memory": {
       "command": "uvx",
-      "args": ["basic-memory", "mcp", "--project", "research"],
+      "args": [
+        "basic-memory",
+        "mcp",
+        "--project",
+        "research"
+      ],
       "description": "Local persistent Markdown knowledge graph with backlinks and entities."
     },
     "paper-search": {
       "command": "uvx",
-      "args": ["paper-search-mcp"],
+      "args": [
+        "paper-search-mcp"
+      ],
       "description": "Scientific paper search across arXiv, bioRxiv, Europe PMC, OpenAlex, and CrossRef."
     },
     "ollama-server": {
       "command": "python3",
-      "args": ["-m", "mcp_ollama_python"],
+      "args": [
+        "-m",
+        "mcp_ollama_python"
+      ],
       "description": "Local Ollama LLM integration server."
     }
   }

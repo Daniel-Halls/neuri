@@ -12,10 +12,10 @@ Textual from the active Neuri theme, either in the CSS below or inside
 
 import asyncio
 import contextlib
-from datetime import UTC, datetime, timezone
-from pathlib import Path
 import re
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, ClassVar
 
 from textual import events
@@ -169,6 +169,83 @@ def card_header(glyph: str, label: str, style: str, stamp: str) -> Content:
     return header
 
 
+class TextualEventPatcher:
+    """Safely patches Textual Screen event forwarding to guard unmounted widgets.
+
+    Textual 8.x can crash with an AttributeError when forwarding mouse events
+    over widgets that have just been unmounted from the DOM but remain in the
+    compositor's spatial hit-test index before the next render pass.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        TextualEventPatcher: TextualEventPatcher class
+            Namespace for Textual event dispatch patching.
+    """
+
+    _patched: ClassVar[bool] = False
+
+    @classmethod
+    def apply_patch(cls) -> bool:
+        """Apply defensive guard to Textual Screen._forward_event.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            bool: boolean object
+                True if patch was applied or already active.
+        """
+        if cls._patched:
+            return True
+
+        from textual.screen import Screen
+
+        original_forward = Screen._forward_event
+
+        def safe_forward_event(
+            screen_self: Screen, event: events.Event
+        ) -> None:
+            """Safely forward events while catching unmounted widget errors.
+
+            Parameters
+            ------------
+            screen_self: Screen
+                Screen instance receiving the event.
+            event: events.Event
+                Incoming Textual event object.
+
+            Returns
+            --------
+                None: NoneType object
+                    Dispatches event or suppresses unmounted container crash.
+            """
+            try:
+                original_forward(screen_self, event)
+            except AttributeError as err:
+                err_msg: str = str(err)
+                is_unmounted_container: bool = (
+                    "'NoneType' object has no attribute 'region'" in err_msg
+                    or "'NoneType' object has no attribute 'is_attached'"
+                    in err_msg
+                )
+                if is_unmounted_container:
+                    return
+                raise
+
+        Screen._forward_event = safe_forward_event  # type: ignore[method-assign]
+        cls._patched = True
+        return True
+
+
+TextualEventPatcher.apply_patch()
+
+
 class MessageCard(Static):
     """Visual message card displaying user or assistant content in chat canvas.
 
@@ -182,6 +259,8 @@ class MessageCard(Static):
         MessageCard: MessageCard instance
             Constructed message widget card.
     """
+
+    ALLOW_SELECT: ClassVar[bool] = False
 
     def __init__(self, turn: ChatTurn) -> None:
         """Initialize message card with role-specific styling classes.
@@ -287,6 +366,8 @@ class LiveFeedbackCard(Static):
             Constructed live streaming widget card.
     """
 
+    ALLOW_SELECT: ClassVar[bool] = False
+
     def __init__(self, node_id: str | None = None) -> None:
         """Initialize live feedback card.
 
@@ -318,34 +399,45 @@ class LiveFeedbackCard(Static):
             ComposeResult: ComposeResult generator
                 Yields header, live status, reasoning drawer, and body widgets.
         """
-        time_str: str = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        time_str: str = datetime.now(UTC).strftime("%H:%M:%S")
         role_label: str = (
             f"specialist · {self._node_id}"
             if self._node_id
             else "neuri"
         )
-        yield Static(
+        header_widget: Static = Static(
             card_header(
                 Glyphs.BRAND, f"{role_label} (live)", "$secondary", time_str
             ),
             classes="card-header",
         )
-        yield Static(
+        header_widget.ALLOW_SELECT = False
+        yield header_widget
+
+        status_line: Static = Static(
             Content.assemble(
                 (TerminalText.sanitize(self._status_text), "$muted")
             ),
             id="live-status-line",
         )
-        yield Static(
+        status_line.ALLOW_SELECT = False
+        yield status_line
+
+        thinking_content: Static = Static(
             "",
             id="live-thinking-content",
             classes="thinking-text",
         )
-        yield Static(
+        thinking_content.ALLOW_SELECT = False
+        yield thinking_content
+
+        body_content: Static = Static(
             "",
             id="live-body-content",
             classes="card-body",
         )
+        body_content.ALLOW_SELECT = False
+        yield body_content
 
     def set_status(self, text: str) -> None:
         """Update live status message line.
@@ -1600,6 +1692,8 @@ class NeuriChatApp(App[None]):
             Constructed Textual application.
     """
 
+    ALLOW_SELECT: ClassVar[bool] = False
+
     TITLE = "Neuri"
     SUB_TITLE = "The friendly neuroscientist"
 
@@ -1868,6 +1962,7 @@ class NeuriChatApp(App[None]):
             history_file=self._resolve_history_path()
         )
         self._current_live_card: LiveFeedbackCard | None = None
+        TextualEventPatcher.apply_patch()
         self._engine.subscribe(self._handle_session_event)
 
     def _resolve_history_path(self) -> Path | None:
@@ -2039,6 +2134,31 @@ class NeuriChatApp(App[None]):
             )
 
         yield Footer()
+
+    async def on_event(self, event: events.Event) -> None:
+        """Handle incoming Textual event with unmounted widget crash protection.
+
+        Parameters
+        ------------
+        event: events.Event
+            Incoming Textual event.
+
+        Returns
+        --------
+            None: NoneType object
+                Processes event via Textual base handler.
+        """
+        try:
+            await super().on_event(event)
+        except AttributeError as err:
+            err_msg: str = str(err)
+            is_unmounted_container: bool = (
+                "'NoneType' object has no attribute 'region'" in err_msg
+                or "'NoneType' object has no attribute 'is_attached'" in err_msg
+            )
+            if is_unmounted_container:
+                return
+            raise
 
     async def on_mount(self) -> None:
         """Triggered when application interface finishes mounting.
@@ -2497,12 +2617,16 @@ class NeuriChatApp(App[None]):
             if live_card is not None:
                 await live_card.remove()
                 self._current_live_card = None
+                with contextlib.suppress(Exception):
+                    self.screen.refresh()
             await scroll_area.mount(MessageCard(assistant_turn))
             scroll_area.scroll_end(animate=False)
         except Exception as exc:
             if live_card is not None:
                 await live_card.remove()
                 self._current_live_card = None
+                with contextlib.suppress(Exception):
+                    self.screen.refresh()
             err_turn: ChatTurn = ChatTurn(
                 turn_id=f"err_{int(datetime.now(UTC).timestamp())}",
                 role=ChatRole.ASSISTANT,
@@ -2590,20 +2714,16 @@ class NeuriChatApp(App[None]):
             delta: str = str(ev.payload.get("thinking_delta", ""))
             if self._current_live_card is not None and delta:
                 self._current_live_card.append_thinking(delta)
-                try:
+                with contextlib.suppress(Exception):
                     self._scroll_chat_end_throttled()
-                except Exception:
-                    pass
 
         elif ev.event_type == SessionEventType.ASSISTANT_CHUNK:
             self._telemetry_bar.status_text = "Generating response..."
             c_delta: str = str(ev.payload.get("content_delta", ""))
             if self._current_live_card is not None and c_delta:
                 self._current_live_card.append_content(c_delta)
-                try:
+                with contextlib.suppress(Exception):
                     self._scroll_chat_end_throttled()
-                except Exception:
-                    pass
 
         elif ev.event_type == SessionEventType.TOOL_CALL_UPDATE:
             tool_name: str = str(ev.payload.get("tool_name", "unknown"))
@@ -2615,10 +2735,8 @@ class NeuriChatApp(App[None]):
             self._telemetry_bar.status_text = msg
             if self._current_live_card is not None:
                 self._current_live_card.set_status(msg)
-                try:
+                with contextlib.suppress(Exception):
                     self._scroll_chat_end_throttled()
-                except Exception:
-                    pass
 
         elif ev.event_type == SessionEventType.CIRCUIT_BREAKER_TRIGGERED:
             self._telemetry_bar.status_text = "Circuit Breaker Tripped"
@@ -2660,5 +2778,6 @@ __all__: list[str] = [
     "ShellResultCard",
     "SlashAutocompletePopup",
     "TelemetryBar",
+    "TextualEventPatcher",
     "WelcomeCard",
 ]

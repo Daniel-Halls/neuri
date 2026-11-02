@@ -9,6 +9,13 @@
    - Slash command `/researcher <topic/question>` activates autonomous academic researcher mode.
    - Slash command `/paperback <instruction/text>` activates the scientific writer, 5-pass referee, and APA 7 citation engine.
 
-3. **Cognitive Brain & Pipeline Documentation:**
-   - Neuri's brain vault (`~/.neuri/brain` or `.neuri/brain`) stores authoritative markdown manuals for 20 MRI pipelines in `brain/doc/`.
-   - Access this knowledge via `/brain search <pipeline>`, `/brain context <topic>`, or by reading `~/.neuri/brain/doc/<package>/commands.md`, `functions.md`, and `documentation.md`.
+3. **Cognitive Brain & Pipeline Documentation (`neuri_docs` MCP):**
+   - Neuri maintains indexed technical manuals across 20+ MRI pipelines in SQLite FTS5.
+   - Access this knowledge directly via the `neuri_docs` MCP server or CLI:
+     - CLI flags & options: call `search_pipeline_commands(pipeline, query)`
+     - Python APIs & functions: call `search_pipeline_functions(pipeline, query)`
+     - Workflows & concepts: call `search_pipeline_docs(pipeline, query)`
+     - Shell fallback: run `python -m neuri.docs.ingest.cli search <pipeline> <query>`
+   - Formulate search queries intelligently using technical synonyms based on software implementation (e.g. search `carbon` or `power` for emissions).
+   - Run a single targeted search query first. As soon as relevant flags or functions are retrieved, immediately output your answer. Do not inspect codebase files or probe database tables.
+   - When querying pipeline documentation, do not invoke external literature search or attach academic citations unless explicitly requested.

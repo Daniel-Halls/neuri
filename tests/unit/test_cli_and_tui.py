@@ -752,3 +752,101 @@ async def test_dynamic_model_validation_and_ui_sync(
         banner_txt2: str = str(app.query_one("#workspace-banner").render())
         assert "harness ollama" in banner_txt2
         assert "model gemma4:26b" in banner_txt2
+
+
+# ---------------------------------------------------------------------------
+# Test Suite 5: Mouse Interaction and Unmounted Widget Resilience
+# ---------------------------------------------------------------------------
+
+
+def test_tui_allow_select_is_disabled() -> None:
+    """Verify text selection is disabled on chat app and message cards.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts ALLOW_SELECT class attribute is False.
+    """
+    from neuri.ui.terminal_chat import (
+        LiveFeedbackCard,
+        MessageCard,
+        NeuriChatApp,
+    )
+
+    assert NeuriChatApp.ALLOW_SELECT is False
+    assert LiveFeedbackCard.ALLOW_SELECT is False
+    assert MessageCard.ALLOW_SELECT is False
+
+
+def test_textual_event_patcher_guards_none_type_container() -> None:
+    """Verify TextualEventPatcher suppresses unmounted widget region errors.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts patch handles NoneType container region AttributeError safely.
+    """
+    from neuri.ui.terminal_chat import TextualEventPatcher
+
+    assert TextualEventPatcher.apply_patch() is True
+
+
+@pytest.mark.asyncio
+async def test_mouse_down_on_unmounted_live_card_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    """Test delivering MouseDown to unmounted widget does not raise AttributeError.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts event dispatch does not crash when container is None.
+    """
+    from textual.events import MouseDown
+
+    from neuri.ui.terminal_chat import LiveFeedbackCard
+
+    (tmp_path / ".neuri").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".neuri" / "config.toml").write_text(
+        '[project]\ntheme = "high_contrast"\n', encoding="utf-8"
+    )
+    app: NeuriChatApp = NeuriChatApp(workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        scroll_area = app.query_one("#chat-scroll")
+        card: LiveFeedbackCard = LiveFeedbackCard(node_id="test_node")
+        card.append_content("Streamed neuroscience response token.")
+        await scroll_area.mount(card)
+        await pilot.pause()
+
+        # Remove the live card (mimicking completion of turn)
+        await card.remove()
+
+        # Simulate user click on the canvas where the live body was located
+        mouse_down_event: MouseDown = MouseDown(
+            None,
+            x=10,
+            y=2,
+            delta_x=0,
+            delta_y=0,
+            button=1,
+            shift=False,
+            meta=False,
+            ctrl=False,
+            screen_x=10,
+            screen_y=2,
+        )
+        await app.on_event(mouse_down_event)
+        assert app.is_mounted is True

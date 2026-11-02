@@ -102,18 +102,30 @@ def test_rule_loader_loads_general_and_role_rules(tmp_path: Path) -> None:
     assert "Validate directory paths" not in loaded_other_rules
 
 
-def test_specialist_agent_envelope_has_no_hardcoded_rules() -> None:
+def test_specialist_agent_envelope_has_no_hardcoded_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Test that agent task envelope contains persona without hardcoded rules.
 
     Parameters
     ------------
-    None
+    tmp_path: Path
+        Pytest temporary directory fixture.
+    monkeypatch: pytest.MonkeyPatch
+        Pytest monkeypatch fixture.
 
     Returns
     --------
         None: NoneType object
             Asserts system prompt contains role identity and no rules block.
     """
+    empty_rules: Path = tmp_path / "empty_rules"
+    empty_rules.mkdir()
+    monkeypatch.setattr(
+        PathResolver,
+        "resolve_rules_dirs",
+        lambda workspace_dir=None: [empty_rules],
+    )
     agent: PipelineEngineerAgent = PipelineEngineerAgent()
     envelope: NeuriTaskEnvelope = agent.build_envelope(
         workflow_id="wf_rule_test",

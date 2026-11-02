@@ -5,9 +5,7 @@ Tests slash command execution (/init, /skills, /status, /harness, /retry,
 and turn accumulation (Milestone 5).
 """
 
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -17,9 +15,6 @@ from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.schemas import (
     ChatRole,
     ChatTurn,
-    NeuriTaskEnvelope,
-    RemoteArtifact,
-    SanitizedNeuroHeader,
     SessionEvent,
     SessionEventType,
     TaskNode,
@@ -404,6 +399,33 @@ def test_orchestrator_plan_workflow(
     assert ready[0].state == TaskState.PENDING
 
 
+def test_orchestrator_task_envelope_includes_docs_tools(
+    test_blackboard: Blackboard,
+) -> None:
+    """Test planning a pipeline prompt equips task envelope with documentation tools.
+
+    Parameters
+    ------------
+    test_blackboard: Blackboard
+        Active Blackboard fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts neuri_docs MCP server and tool instructions are present.
+    """
+    orch: DAGOrchestrator = DAGOrchestrator(blackboard=test_blackboard)
+    wf_id: str = orch.plan_workflow_from_prompt(
+        "how do I run fmriprep with cifti output?"
+    )
+    ready: list[TaskNode] = test_blackboard.get_ready_nodes(wf_id)
+    assert len(ready) >= 1
+    node: TaskNode = ready[0]
+    assert node.envelope is not None
+    assert "neuri_docs" in node.envelope.mcp_servers
+    assert "search_pipeline_commands" in node.envelope.system_prompt
+
+
 def test_orchestrator_retry_and_cancel_node(
     test_blackboard: Blackboard,
 ) -> None:
@@ -624,5 +646,6 @@ async def test_session_engine_harness_switch_auto_updates_model(
     assert len(nodes) == 1
     assert nodes[0].harness_id == "ollama"
     assert nodes[0].model == "gemma4:26b"
+    assert nodes[0].envelope is not None
     assert nodes[0].envelope.model == "gemma4:26b"
 

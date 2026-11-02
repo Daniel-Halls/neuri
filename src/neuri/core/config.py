@@ -6,14 +6,14 @@ Provides hierarchical loading of global operator configurations
 and Pydantic configuration schemas.
 """
 
-from collections.abc import Mapping
-from pathlib import Path
 import sqlite3
 import tomllib
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
 import tomli_w
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ConfigError(Exception):
@@ -478,6 +478,16 @@ class NeuriConfig(BaseModel):
             normalized["project"]["default_model"] = normalized["model"]
 
         # Resolve uniform active harness & model across all roles
+        has_explicit_harness: bool = (
+            "default_harness" in normalized
+            or "harness" in normalized
+            or (
+                "project" in normalized
+                and isinstance(normalized["project"], dict)
+                and "default_harness" in normalized["project"]
+            )
+        )
+
         active_h: str = "agy"
         if (
             "project" in normalized
@@ -502,22 +512,61 @@ class NeuriConfig(BaseModel):
         elif "harnesses_routing" in normalized and "harness_routing" not in normalized:
             normalized["harness_routing"] = normalized["harnesses_routing"]
 
-        default_roles: dict[str, dict[str, Any]] = {
-            role_key: {
-                "harness": active_h,
-                "mode": "headless_json",
-                "model": active_m,
+        if has_explicit_harness:
+            default_roles: dict[str, dict[str, Any]] = {
+                role_key: {
+                    "harness": active_h,
+                    "mode": "headless_json",
+                    "model": active_m,
+                }
+                for role_key in [
+                    "coordinator",
+                    "pipeline_engineer",
+                    "neuroimaging_specialist",
+                    "electrophys_specialist",
+                    "compute_operator",
+                    "critic_qa",
+                    "scientific_writer",
+                ]
             }
-            for role_key in [
-                "coordinator",
-                "pipeline_engineer",
-                "neuroimaging_specialist",
-                "electrophys_specialist",
-                "compute_operator",
-                "critic_qa",
-                "scientific_writer",
-            ]
-        }
+        else:
+            default_roles = {
+                "coordinator": {
+                    "harness": "agy",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "pipeline_engineer": {
+                    "harness": "codex",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "neuroimaging_specialist": {
+                    "harness": "agy",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "electrophys_specialist": {
+                    "harness": "agy",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "compute_operator": {
+                    "harness": "codex",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "critic_qa": {
+                    "harness": "agy",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+                "scientific_writer": {
+                    "harness": "agy",
+                    "mode": "headless_json",
+                    "model": active_m,
+                },
+            }
 
         # Populate uniform routing across all roles
         if "harness_routing" not in normalized or not normalized["harness_routing"]:
@@ -526,14 +575,19 @@ class NeuriConfig(BaseModel):
             merged_roles: dict[str, Any] = dict(default_roles)
             for r_key, r_val in normalized["harness_routing"].items():
                 if isinstance(r_val, dict):
+                    fallback_h: str = (
+                        active_h
+                        if has_explicit_harness
+                        else default_roles.get(r_key, {}).get("harness", "agy")
+                    )
                     merged_roles[r_key] = {
-                        "harness": r_val.get("harness", active_h),
+                        "harness": r_val.get("harness", fallback_h),
                         "mode": r_val.get("mode", "headless_json"),
                         "model": r_val.get("model", active_m),
                     }
                 else:
                     merged_roles[r_key] = {
-                        "harness": active_h,
+                        "harness": active_h if has_explicit_harness else "agy",
                         "mode": "headless_json",
                         "model": active_m,
                     }
