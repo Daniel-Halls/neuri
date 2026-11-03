@@ -6,6 +6,7 @@ human operator escalation in SQLite WAL Blackboard.
 """
 
 import contextlib
+import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -256,7 +257,9 @@ class DAGOrchestrator:
         return configured
 
     def sync_harness_model(
-        self, harness_id: str | None = None
+        self,
+        harness_id: str | None = None,
+        sync_all_roles: bool = False,
     ) -> str | None:
         """Synchronize active configuration to a valid model for the harness.
 
@@ -264,6 +267,9 @@ class DAGOrchestrator:
         ------------
         harness_id: str | None
             Target harness identifier. Defaults to active default_harness.
+        sync_all_roles: bool
+            Whether to synchronize all roles in harness_routing map.
+            Defaults to False.
 
         Returns
         --------
@@ -279,7 +285,7 @@ class DAGOrchestrator:
         self._config.project.default_harness = target_h
         if resolved_m is not None:
             self._config.project.default_model = resolved_m
-            if isinstance(self._config.harness_routing, dict):
+            if sync_all_roles and isinstance(self._config.harness_routing, dict):
                 for r_cfg in self._config.harness_routing.values():
                     r_cfg.harness = target_h
                     r_cfg.model = resolved_m
@@ -356,9 +362,21 @@ class DAGOrchestrator:
             node_id: str = f"node_{wf_id}_{start_step}_task"
             agent_role: str = "coordinator"
             route = self._config.harness_routing.get(agent_role)
-            harness_id: str = active_harness
+            harness_id: str = (
+                route.harness
+                if route is not None and getattr(route, "harness", None)
+                else active_harness
+            )
             exec_mode: str = route.mode if route is not None else "headless_json"
-            model_id: str | None = active_model
+            model_id: str | None = (
+                route.model
+                if route is not None and getattr(route, "model", None)
+                else (
+                    active_model
+                    if harness_id == active_harness
+                    else self.resolve_active_model(harness_id)
+                )
+            )
             specialist: BaseSpecialistAgent = self._resolve_specialist_agent(
                 agent_role
             )
@@ -390,7 +408,7 @@ class DAGOrchestrator:
             self._blackboard.create_node(node)
             return wf_id
 
-        prev_node_id: str | None = None
+        created_node_ids: list[str] = []
         for idx, skill_id in enumerate(matched_skills):
             step_num: int = start_step + idx
             node_id = f"node_{wf_id}_{step_num}_{skill_id.replace('-', '_')}"
@@ -398,9 +416,21 @@ class DAGOrchestrator:
                 skill_id, "neuroimaging_specialist"
             )
             route = self._config.harness_routing.get(agent_role)
-            harness_id = active_harness
+            harness_id = (
+                route.harness
+                if route is not None and getattr(route, "harness", None)
+                else active_harness
+            )
             exec_mode = route.mode if route is not None else "headless_json"
-            model_id = active_model
+            model_id = (
+                route.model
+                if route is not None and getattr(route, "model", None)
+                else (
+                    active_model
+                    if harness_id == active_harness
+                    else self.resolve_active_model(harness_id)
+                )
+            )
 
             resolved_dir: Path | None = PathResolver.resolve_skill_dir(skill_id)
             skill_paths: list[str] = (
@@ -437,16 +467,43 @@ class DAGOrchestrator:
                 envelope=envelope,
             )
             self._blackboard.create_node(node)
+            created_node_ids.append(node_id)
 
-            if prev_node_id is not None:
-                edge: TaskEdge = TaskEdge(
-                    parent_node_id=prev_node_id,
-                    child_node_id=node_id,
+        is_parallel: bool = bool(
+            re.search(
+                r"\b(?:in parallel|concurrently|simultaneously|both)\b",
+                prompt,
+                re.IGNORECASE,
+            )
+        )
+        has_fanin: bool = bool(
+            re.search(
+                r"\b(?:then|finally|afterward|followed by|summarize|report)\b",
+                prompt,
+                re.IGNORECASE,
+            )
+        )
+
+        if is_parallel and len(created_node_ids) > 1:
+            if has_fanin and len(created_node_ids) >= 3:
+                fan_in_node_id: str = created_node_ids[-1]
+                for p_node_id in created_node_ids[:-1]:
+                    edge: TaskEdge = TaskEdge(
+                        parent_node_id=p_node_id,
+                        child_node_id=fan_in_node_id,
+                        workflow_id=wf_id,
+                    )
+                    self._blackboard.add_edge(edge)
+        else:
+            for idx in range(1, len(created_node_ids)):
+                edge = TaskEdge(
+                    parent_node_id=created_node_ids[idx - 1],
+                    child_node_id=created_node_ids[idx],
                     workflow_id=wf_id,
                 )
                 self._blackboard.add_edge(edge)
-            prev_node_id = node_id
 
+        self._blackboard.validate_dag_acyclic(wf_id)
         return wf_id
 
     def _match_skills_from_prompt(self, prompt: str) -> list[str]:
@@ -850,11 +907,11 @@ class DAGOrchestrator:
             return exec_res
 
         # 4. Handle failure with bounded retries (N=2)
-        current_attempt: int = node.attempt + 1
-        if current_attempt < node.max_retries:
+        if node.attempt < node.max_retries:
+            next_attempt: int = node.attempt + 1
             new_envelope: NeuriTaskEnvelope = active_envelope.model_copy(
                 update={
-                    "attempt_number": current_attempt + 1,
+                    "attempt_number": next_attempt + 1,
                     "diagnostic_feedback": exec_res.error_message,
                 }
             )
@@ -863,7 +920,7 @@ class DAGOrchestrator:
                 node.node_id,
                 TaskState.RETRYING,
                 diagnostic_feedback=exec_res.error_message,
-                summary_result=f"Retrying (attempt {current_attempt + 1})",
+                summary_result=f"Retrying (attempt {next_attempt + 1})",
             )
             # Revert to PENDING so next wave re-executes with updated attempt
             self._blackboard.update_node_state(
@@ -883,35 +940,32 @@ class DAGOrchestrator:
 
         return exec_res
 
-    def retry_node(self, node_id: str) -> bool:
+    def retry_node(
+        self, node_id: str, operator_feedback: str | None = None
+    ) -> bool:
         """Reset a node from WAITING_OPERATOR or FAILED back to PENDING.
 
         Parameters
         ------------
         node_id: str
             Target node identifier.
+        operator_feedback: str | None
+            Optional manual instructions or guidance provided by the operator.
+            Defaults to None.
 
         Returns
         --------
             bool: boolean object
                 True if node was successfully reset, False otherwise.
         """
-        node: TaskNode | None = self._blackboard.get_node(node_id)
-        if node is None:
-            return False
-
-        if node.state in (
-            TaskState.WAITING_OPERATOR,
-            TaskState.FAILED,
-            TaskState.RETRYING,
-        ):
-            self._blackboard.update_node_state(
-                node_id,
-                TaskState.PENDING,
-                diagnostic_feedback="Operator manual retry requested",
-            )
-            return True
-        return False
+        feedback_msg: str = (
+            f"Operator manual retry: {operator_feedback}"
+            if operator_feedback and operator_feedback.strip()
+            else "Operator manual retry requested"
+        )
+        return self._blackboard.schedule_node_retry(
+            node_id, feedback=feedback_msg
+        )
 
     def cancel_node(self, node_id: str) -> bool:
         """Transition a node to CANCELLED state.

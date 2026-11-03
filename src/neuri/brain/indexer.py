@@ -5,11 +5,13 @@ atomic observations, directed relationships, and providing fast incremental
 sync with filesystem mtime and SHA-256 change detection.
 """
 
+import contextlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Any, Generator
 
 from neuri.brain.parser import BrainParser
@@ -53,12 +55,12 @@ class BrainIndexer:
         """
         self._db_path: Path = db_path.resolve()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local: threading.local = threading.local()
         self._parser: BrainParser = BrainParser()
         self._initialize_schema()
 
-    @contextmanager
-    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Provide a context-managed SQLite connection with foreign keys.
+    def _create_connection(self) -> sqlite3.Connection:
+        """Create and configure a new SQLite connection with WAL pragmas.
 
         Parameters
         ------------
@@ -66,8 +68,8 @@ class BrainIndexer:
 
         Returns
         --------
-            Generator[sqlite3.Connection, None, None]: generator object
-                Yields active SQLite connection within transaction context.
+            sqlite3.Connection: SQLite connection object
+                Configured connection with row factory and WAL pragmas.
         """
         conn: sqlite3.Connection = sqlite3.connect(
             str(self._db_path),
@@ -78,14 +80,51 @@ class BrainIndexer:
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+    @contextmanager
+    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
+        """Provide a context-managed SQLite connection with foreign keys.
+
+        Reuses thread-local connection in WAL mode when available.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Generator[sqlite3.Connection, None, None]: generator object
+                Yields active SQLite connection within transaction context.
+        """
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._create_connection()
+            self._local.conn = conn
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        finally:
-            conn.close()
+
+    def close(self) -> None:
+        """Close thread-local database connection if open.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Closes cached database connection.
+        """
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+            self._local.conn = None
 
     def _initialize_schema(self) -> None:
         """Create database tables, indexes, and FTS5 virtual tables.
@@ -414,7 +453,7 @@ class BrainIndexer:
                        content_sha256, mtime_ns, frontmatter_json,
                        summary_excerpt
                 FROM brain_entities
-                WHERE entity_id = ?
+                WHERE entity_id = ? COLLATE NOCASE
                 """,
                 (entity_id,),
             )
@@ -422,14 +461,17 @@ class BrainIndexer:
             if not row:
                 return None
 
+            canonical_id: str = row["entity_id"]
             obs_count: int = conn.execute(
-                "SELECT COUNT(*) FROM brain_observations WHERE entity_id = ?",
-                (entity_id,),
+                "SELECT COUNT(*) FROM brain_observations "
+                "WHERE entity_id = ? COLLATE NOCASE",
+                (canonical_id,),
             ).fetchone()[0]
 
             rel_count: int = conn.execute(
-                "SELECT COUNT(*) FROM brain_relations WHERE source_entity_id = ?",
-                (entity_id,),
+                "SELECT COUNT(*) FROM brain_relations "
+                "WHERE source_entity_id = ? COLLATE NOCASE",
+                (canonical_id,),
             ).fetchone()[0]
 
             entity: BrainEntity = BrainEntity(

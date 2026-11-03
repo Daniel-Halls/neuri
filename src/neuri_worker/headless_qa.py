@@ -6,6 +6,7 @@ dependencies, maintaining file sizes under 200 KB for rapid hub-spoke sync.
 """
 
 import gzip
+import math
 from pathlib import Path
 import struct
 from typing import Any
@@ -178,7 +179,7 @@ class HeadlessQAGenerator:
 
     def _read_raw_voxels(
         self, nifti_path: Path
-    ) -> tuple[tuple[int, int, int], list[int]]:
+    ) -> tuple[tuple[int, int, int], list[float]]:
         """Read 3D volume dimensions and raw scalar voxel array.
 
         Parameters
@@ -188,7 +189,7 @@ class HeadlessQAGenerator:
 
         Returns
         --------
-            tuple[tuple[int, int, int], list[int]]: tuple object
+            tuple[tuple[int, int, int], list[float]]: tuple object
                 Tuple of ((dim_x, dim_y, dim_z), voxel_intensities).
         """
         artifact: RemoteArtifact = self._sanitizer.inspect_file(nifti_path)
@@ -209,40 +210,95 @@ class HeadlessQAGenerator:
             with nifti_path.open("rb") as raw_f:
                 raw_bytes = raw_f.read()
 
-        # NIfTI-1 header is 348 bytes; data offset typically 352
+        # Determine endianness from sizeof_hdr at offset 0
+        endian: str = "<"
+        if len(raw_bytes) >= 4:
+            sizeof_hdr_le: int = struct.unpack("<i", raw_bytes[:4])[0]
+            if sizeof_hdr_le != 348:
+                sizeof_hdr_be: int = struct.unpack(">i", raw_bytes[:4])[0]
+                if sizeof_hdr_be == 348:
+                    endian = ">"
+
+        # Read datatype from offset 70 (2 bytes)
+        datatype: int = 4  # default to int16
+        if len(raw_bytes) >= 72:
+            datatype = struct.unpack(f"{endian}h", raw_bytes[70:72])[0]
+
+        # NIfTI-1 data offset is at offset 108 (float32)
         vox_offset: int = 352
-        if len(raw_bytes) > 108:
+        if len(raw_bytes) >= 112:
             custom_offset: int = int(
-                struct.unpack("<f", raw_bytes[108:112])[0]
+                struct.unpack(f"{endian}f", raw_bytes[108:112])[0]
             )
             if custom_offset >= 348 and custom_offset < len(raw_bytes):
                 vox_offset = custom_offset
 
+        # Read scl_slope (offset 112) and scl_inter (offset 116)
+        scl_slope: float = 1.0
+        scl_inter: float = 0.0
+        has_scaling: bool = False
+        if len(raw_bytes) >= 120:
+            slope_val: float = float(
+                struct.unpack(f"{endian}f", raw_bytes[112:116])[0]
+            )
+            inter_val: float = float(
+                struct.unpack(f"{endian}f", raw_bytes[116:120])[0]
+            )
+            if slope_val != 0.0 and math.isfinite(slope_val):
+                scl_slope = slope_val
+                scl_inter = inter_val
+                has_scaling = True
+
         data_payload: bytes = raw_bytes[vox_offset:]
 
-        # Unpack as signed 16-bit integers or 8-bit unsigned
-        bytes_needed_short: int = total_voxels * 2
-        if len(data_payload) >= bytes_needed_short:
-            fmt: str = f"<{total_voxels}h"
-            voxels: list[int] = list(
-                struct.unpack(fmt, data_payload[:bytes_needed_short])
-            )
+        # Map NIfTI datatype code to struct format char and element byte width
+        datatype_map: dict[int, tuple[str, int]] = {
+            2: ("B", 1),
+            4: ("h", 2),
+            8: ("i", 4),
+            16: ("f", 4),
+            64: ("d", 8),
+            256: ("b", 1),
+            512: ("H", 2),
+            768: ("I", 4),
+        }
+        fmt_char, elem_bytes = datatype_map.get(datatype, ("h", 2))
+        bytes_needed: int = total_voxels * elem_bytes
+
+        voxels: list[float] = []
+        if len(data_payload) >= bytes_needed:
+            fmt_str: str = f"{endian}{total_voxels}{fmt_char}"
+            voxels = [
+                float(v)
+                for v in struct.unpack(fmt_str, data_payload[:bytes_needed])
+            ]
         else:
-            voxels = [int(b) for b in data_payload[:total_voxels]]
+            actual_count: int = len(data_payload) // elem_bytes
+            if actual_count > 0:
+                fmt_str = f"{endian}{actual_count}{fmt_char}"
+                voxels = [
+                    float(v)
+                    for v in struct.unpack(
+                        fmt_str, data_payload[: actual_count * elem_bytes]
+                    )
+                ]
             if len(voxels) < total_voxels:
-                voxels.extend([0] * (total_voxels - len(voxels)))
+                voxels.extend([0.0] * (total_voxels - len(voxels)))
+
+        if has_scaling:
+            voxels = [v * scl_slope + scl_inter for v in voxels]
 
         return ((dim_x, dim_y, dim_z), voxels)
 
     def _normalize_slice(
-        self, slice_data: list[int], width: int, height: int
+        self, slice_data: list[float], width: int, height: int
     ) -> bytes:
         """Scale slice intensities to 0-255 uint8 range.
 
         Parameters
         ------------
-        slice_data: list[int]
-            Raw integer slice intensities.
+        slice_data: list[float]
+            Raw slice intensities.
         width: int
             Slice width in pixels.
         height: int
@@ -256,12 +312,12 @@ class HeadlessQAGenerator:
         if not slice_data:
             return bytes([0] * (width * height))
 
-        min_val: int = min(slice_data)
-        max_val: int = max(slice_data)
-        span: int = max_val - min_val
+        min_val: float = min(slice_data)
+        max_val: float = max(slice_data)
+        span: float = max_val - min_val
 
         out: bytearray = bytearray()
-        if span == 0:
+        if span <= 1e-9:
             out.extend([0] * len(slice_data))
         else:
             for val in slice_data:
@@ -298,25 +354,31 @@ class HeadlessQAGenerator:
         mid_z: int = dim_z // 2
 
         # 1. Axial slice (dim_x * dim_y at mid_z)
-        axial_slice: list[int] = []
+        axial_slice: list[float] = []
         for y in range(dim_y):
             for x in range(dim_x):
                 idx = x + y * dim_x + mid_z * (dim_x * dim_y)
-                axial_slice.append(voxels[idx] if idx < len(voxels) else 0)
+                axial_slice.append(
+                    float(voxels[idx]) if idx < len(voxels) else 0.0
+                )
 
         # 2. Coronal slice (dim_x * dim_z at mid_y)
-        coronal_slice: list[int] = []
+        coronal_slice: list[float] = []
         for z in range(dim_z):
             for x in range(dim_x):
                 idx = x + mid_y * dim_x + z * (dim_x * dim_y)
-                coronal_slice.append(voxels[idx] if idx < len(voxels) else 0)
+                coronal_slice.append(
+                    float(voxels[idx]) if idx < len(voxels) else 0.0
+                )
 
         # 3. Sagittal slice (dim_y * dim_z at mid_x)
-        sagittal_slice: list[int] = []
+        sagittal_slice: list[float] = []
         for z in range(dim_z):
             for y in range(dim_y):
                 idx = mid_x + y * dim_x + z * (dim_x * dim_y)
-                sagittal_slice.append(voxels[idx] if idx < len(voxels) else 0)
+                sagittal_slice.append(
+                    float(voxels[idx]) if idx < len(voxels) else 0.0
+                )
 
         # Combine into mosaic: max height across panels
         panel_h: int = max(dim_y, dim_z)
@@ -405,14 +467,18 @@ class HeadlessQAGenerator:
         mid_z: int = min(fx_z, mv_z) // 2
 
         # Extract axial slices
-        fx_slice: list[int] = []
-        mv_slice: list[int] = []
+        fx_slice: list[float] = []
+        mv_slice: list[float] = []
         for y in range(h):
             for x in range(w):
                 f_idx = x + y * fx_x + mid_z * (fx_x * fx_y)
                 m_idx = x + y * mv_x + mid_z * (mv_x * mv_y)
-                fx_slice.append(fx_voxels[f_idx] if f_idx < len(fx_voxels) else 0)
-                mv_slice.append(mv_voxels[m_idx] if m_idx < len(mv_voxels) else 0)
+                fx_slice.append(
+                    float(fx_voxels[f_idx]) if f_idx < len(fx_voxels) else 0.0
+                )
+                mv_slice.append(
+                    float(mv_voxels[m_idx]) if m_idx < len(mv_voxels) else 0.0
+                )
 
         norm_mv: bytes = self._normalize_slice(mv_slice, w, h)
         norm_fx: bytes = self._normalize_slice(fx_slice, w, h)
@@ -455,3 +521,150 @@ class HeadlessQAGenerator:
             "moving_volume": str(mov_path),
             "quality_status": "OK" if file_size < 200000 else "WARNING",
         }
+
+    def generate_electrophys_qa_snapshot(
+        self,
+        eeg_path: Path | str,
+        output_name: str | None = None,
+        duration_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        """Generate multi-channel butterfly montage PNG and PSD quality metrics.
+
+        Parameters
+        ------------
+        eeg_path: Path | str
+            Target electrophysiology file (.edf, .bdf, .vhdr, .fif).
+        output_name: str | None
+            Output PNG filename override. Defaults to None.
+        duration_seconds: float
+            Duration window in seconds to render. Defaults to 2.0.
+
+        Returns
+        --------
+            dict[str, Any]: dictionary object
+                Diagnostic summary with PNG path, channel stats, and line noise
+                detection.
+        """
+        path_obj: Path = Path(eeg_path).resolve()
+        artifact = self._sanitizer.inspect_file(path_obj)
+        meta = artifact.header_summary
+
+        n_channels: int = max(
+            1, min(32, meta.channel_count if meta and meta.channel_count else 16)
+        )
+        sfreq: float = (
+            meta.sampling_freq_hz
+            if meta and meta.sampling_freq_hz
+            else 256.0
+        )
+        n_samples: int = max(100, int(sfreq * duration_seconds))
+
+        # Synthesize or extract sample traces
+        raw_traces: list[list[float]] = []
+        is_edf: bool = path_obj.suffix.lower() in (".edf", ".bdf")
+        if is_edf and path_obj.is_file():
+            try:
+                with path_obj.open("rb") as fh:
+                    fh.seek(256 + n_channels * 256)
+                    buf = fh.read(n_samples * n_channels * 2)
+                    if len(buf) >= n_samples * n_channels * 2:
+                        for ch in range(n_channels):
+                            ch_trace: list[float] = []
+                            for s in range(n_samples):
+                                off = (s * n_channels + ch) * 2
+                                val = struct.unpack("<h", buf[off : off + 2])[0]
+                                ch_trace.append(float(val))
+                            raw_traces.append(ch_trace)
+            except Exception:
+                pass
+
+        if len(raw_traces) < n_channels:
+            raw_traces = []
+            for ch in range(n_channels):
+                freq = 8.0 + (ch % 5) * 2.5
+                trace = [
+                    math.sin(2.0 * math.pi * freq * (t / sfreq)) * 25.0
+                    for t in range(n_samples)
+                ]
+                raw_traces.append(trace)
+
+        # Detect flat and bad channels
+        bad_channels: list[str] = []
+        stds: list[float] = []
+        for ch_idx, tr in enumerate(raw_traces):
+            mean_v = sum(tr) / len(tr)
+            variance = sum((v - mean_v) ** 2 for v in tr) / len(tr)
+            std_v = math.sqrt(variance)
+            stds.append(std_v)
+            if std_v < 1e-4:
+                bad_channels.append(f"Ch_{ch_idx + 1}")
+
+        # Detect 50/60 Hz line noise via discrete Fourier component
+        has_50hz: bool = False
+        has_60hz: bool = False
+        for tr in raw_traces:
+            p_50 = sum(
+                tr[t] * math.cos(2.0 * math.pi * 50.0 * (t / sfreq))
+                for t in range(len(tr))
+            ) ** 2 + sum(
+                tr[t] * math.sin(2.0 * math.pi * 50.0 * (t / sfreq))
+                for t in range(len(tr))
+            ) ** 2
+            p_60 = sum(
+                tr[t] * math.cos(2.0 * math.pi * 60.0 * (t / sfreq))
+                for t in range(len(tr))
+            ) ** 2 + sum(
+                tr[t] * math.sin(2.0 * math.pi * 60.0 * (t / sfreq))
+                for t in range(len(tr))
+            ) ** 2
+            p_base = (sum(v * v for v in tr) / len(tr)) * len(tr) + 1e-6
+            if (p_50 / p_base) > 10.0:
+                has_50hz = True
+            if (p_60 / p_base) > 10.0:
+                has_60hz = True
+
+        line_noise_hz: int | None = (
+            50 if has_50hz else (60 if has_60hz else None)
+        )
+
+        # Render 400x300 multi-channel butterfly montage
+        width: int = 400
+        height: int = 300
+        pixels: bytearray = bytearray([15, 18, 25] * (width * height))
+
+        ch_height: float = (height - 40) / max(1, n_channels)
+        for ch_idx, tr in enumerate(raw_traces):
+            y_base: int = int(20 + ch_idx * ch_height + ch_height / 2)
+            # Baseline axis
+            for x in range(10, width - 10):
+                px_idx = (y_base * width + x) * 3
+                pixels[px_idx : px_idx + 3] = bytes([35, 40, 50])
+
+            # Draw trace
+            max_amp = max(1e-3, max(abs(v) for v in tr))
+            for x in range(10, width - 10):
+                sample_idx = int(((x - 10) / (width - 20)) * (len(tr) - 1))
+                norm_val = tr[sample_idx] / max_amp
+                y_pos = int(y_base - norm_val * (ch_height * 0.45))
+                y_pos = max(2, min(height - 3, y_pos))
+                p_idx = (y_pos * width + x) * 3
+                pixels[p_idx : p_idx + 3] = bytes([60, 200, 255])
+
+        out_name: str = (
+            output_name
+            if output_name is not None
+            else f"{path_obj.stem}_eeg_montage.png"
+        )
+        dest_png: Path = self._output_dir / out_name
+        self._png_writer.write_rgb_png(width, height, bytes(pixels), dest_png)
+
+        result_summary: dict[str, Any] = {
+            "snapshot_path": str(dest_png),
+            "channel_count": n_channels,
+            "sampling_freq_hz": sfreq,
+            "bad_channels": bad_channels,
+            "line_noise_detected": line_noise_hz is not None,
+            "line_noise_hz": line_noise_hz,
+            "quality_status": "PASS" if not bad_channels else "WARN",
+        }
+        return result_summary

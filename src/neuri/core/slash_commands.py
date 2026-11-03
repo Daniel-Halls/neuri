@@ -7,6 +7,7 @@ interface and future Desktop/Web GUIs.
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import json
 from pathlib import Path
 import shutil
 from typing import Any, Coroutine
@@ -134,6 +135,8 @@ class SlashCommandRouter:
         "/referee",
         "/notebooklm",
         "/nlm",
+        "/bids",
+        "/export",
         "/plan",
         "/run",
         "/view",
@@ -257,6 +260,10 @@ class SlashCommandRouter:
             return self._handle_paperback(args)
         elif cmd in ("/notebooklm", "/nlm"):
             return self._handle_notebooklm(args)
+        elif cmd == "/bids":
+            return self._handle_bids(args)
+        elif cmd == "/export":
+            return self._handle_export(args)
         elif cmd == "/plan":
             return self._handle_plan(args)
         elif cmd == "/run":
@@ -676,6 +683,7 @@ class SlashCommandRouter:
         }
 
         if args:
+            target_role: str | None = None
             target_h: str = "agy"
             chosen_model: str | None = None
             if len(args) == 1:
@@ -683,7 +691,15 @@ class SlashCommandRouter:
             elif len(args) == 2:
                 t0: str = args[0].strip().lower()
                 t1: str = args[1].strip().lower()
-                if t0 in known_harnesses:
+                if (
+                    isinstance(self._config.harness_routing, dict)
+                    and t0 in self._config.harness_routing
+                    and t1 in known_harnesses
+                ):
+                    target_role = t0
+                    target_h = t1
+                    chosen_model = None
+                elif t0 in known_harnesses:
                     target_h = t0
                     chosen_model = args[1].strip()
                 elif t1 in known_harnesses:
@@ -695,7 +711,15 @@ class SlashCommandRouter:
             else:
                 t0 = args[0].strip().lower()
                 t1 = args[1].strip().lower()
-                if t1 in known_harnesses:
+                if (
+                    isinstance(self._config.harness_routing, dict)
+                    and t0 in self._config.harness_routing
+                    and t1 in known_harnesses
+                ):
+                    target_role = t0
+                    target_h = t1
+                    chosen_model = args[2].strip()
+                elif t1 in known_harnesses:
                     target_h = t1
                     chosen_model = args[2].strip()
                 else:
@@ -737,28 +761,43 @@ class SlashCommandRouter:
             else:
                 chosen_model = avail_models[0] if avail_models else None
 
-            self._config.project.default_harness = target_h
-            self._config.project.default_model = chosen_model
+            if target_role is not None and isinstance(
+                self._config.harness_routing, dict
+            ):
+                r_cfg = self._config.harness_routing[target_role]
+                r_cfg.harness = target_h
+                r_cfg.model = chosen_model
+                role_model_note: str = (
+                    f" with model `{chosen_model}`" if chosen_model else ""
+                )
+                msg: str = (
+                    f"Updated harness routing: Role `{target_role}` set to "
+                    f"`{target_h}`{role_model_note}."
+                )
+            else:
+                self._config.project.default_harness = target_h
+                self._config.project.default_model = chosen_model
 
-            if isinstance(self._config.harness_routing, dict):
-                for r_cfg in self._config.harness_routing.values():
-                    r_cfg.harness = target_h
-                    r_cfg.model = chosen_model
+                if isinstance(self._config.harness_routing, dict):
+                    for r_cfg in self._config.harness_routing.values():
+                        r_cfg.harness = target_h
+                        r_cfg.model = chosen_model
 
-            self._persist_harness_and_model(target_h, chosen_model)
+                self._persist_harness_and_model(target_h, chosen_model)
 
-            model_note: str = (
-                f" with model `{chosen_model}`" if chosen_model else ""
-            )
-            msg: str = (
-                f"Updated harness routing: All roles set to "
-                f"`{target_h}`{model_note}."
-            )
+                model_note: str = (
+                    f" with model `{chosen_model}`" if chosen_model else ""
+                )
+                msg = (
+                    f"Updated harness routing: All roles set to "
+                    f"`{target_h}`{model_note}."
+                )
             return SlashCommandResult(
                 command="/harness",
                 success=True,
                 markdown_output=msg,
                 data={
+                    "role": target_role,
                     "harness": target_h,
                     "model": chosen_model,
                 },
@@ -933,20 +972,34 @@ class SlashCommandRouter:
                     },
                 )
 
-            self._config.project.default_model = chosen_model_val
-            if isinstance(self._config.harness_routing, dict):
-                for r_cfg_item in self._config.harness_routing.values():
-                    r_cfg_item.model = chosen_model_val
-
-            self._persist_harness_and_model(active_harness, chosen_model_val)
+            if (
+                role_target in ("all", "--all")
+                or not isinstance(self._config.harness_routing, dict)
+                or role_target not in self._config.harness_routing
+            ):
+                self._config.project.default_model = chosen_model_val
+                if isinstance(self._config.harness_routing, dict):
+                    for r_cfg_item in self._config.harness_routing.values():
+                        r_cfg_item.model = chosen_model_val
+                self._persist_harness_and_model(
+                    active_harness, chosen_model_val
+                )
+                msg_text: str = (
+                    f"Updated model: Set `{chosen_model_val}` across all roles."
+                )
+            else:
+                self._config.harness_routing[
+                    role_target
+                ].model = chosen_model_val
+                msg_text = (
+                    f"Updated model: Set `{role_target}` to "
+                    f"`{chosen_model_val}`."
+                )
 
             role_result: SlashCommandResult = SlashCommandResult(
                 command="/model",
                 success=True,
-                markdown_output=(
-                    f"Updated model: Set `{role_target}` to `{chosen_model_val}` "
-                    f"(applied across all roles in uniform mode)."
-                ),
+                markdown_output=msg_text,
                 data={"role": role_target, "model": chosen_model_val},
             )
             return role_result
@@ -1617,24 +1670,329 @@ class SlashCommandRouter:
             data={"theme_name": matched.name},
         )
 
-    def _handle_plan(self, args: list[str]) -> SlashCommandResult:
-        """Decompose natural language prompt into DAG without auto-executing.
+    def _handle_bids(self, args: list[str]) -> SlashCommandResult:
+        """Inspect and validate BIDS dataset directory layout and cohort completeness.
 
         Parameters
         ------------
         args: list[str]
-            User research prompt string.
+            Subcommands ('summary', 'validate') and optional path.
 
         Returns
         --------
             SlashCommandResult: SlashCommandResult instance
-                DAG preview card with role assignments and instructions.
+                Cohort completeness table or pre-flight validation status card.
         """
+        from neuri_worker.bids_validator import BIDSLayoutValidator
+
+        subcmd: str = args[0].lower() if args else "summary"
+        target_path: Path = self._workspace_dir
+        if len(args) > 1:
+            target_path = Path(args[1])
+        elif len(args) == 1 and args[0] not in ("summary", "validate"):
+            target_path = Path(args[0])
+            subcmd = "summary"
+
+        validator: BIDSLayoutValidator = BIDSLayoutValidator()
+        report: dict[str, Any] = validator.scan_dataset(target_path)
+
+        if subcmd == "validate":
+            ready, blockers = validator.validate_preflight_cohort(target_path)
+            lines: list[str] = [
+                f"### BIDS Dataset Validation: `{target_path.name}`\n",
+                f"- **Valid Structure:** {'✓ Yes' if report['valid'] else '✗ No'}",
+                f"- **Pre-flight Cohort Ready:** "
+                f"{'✓ Ready' if ready else '✗ Blocked'}",
+                f"- **Total Subjects:** {report['subject_count']}",
+            ]
+            if report.get("errors"):
+                lines.append("\n**Errors:**")
+                for err in report["errors"]:
+                    lines.append(f"- ✗ {err}")
+            if report.get("warnings"):
+                lines.append("\n**Warnings:**")
+                for warn in report["warnings"]:
+                    lines.append(f"- ! {warn}")
+            if blockers:
+                lines.append("\n**Pre-flight Blockers:**")
+                for blk in blockers:
+                    lines.append(f"- ✗ {blk}")
+
+            valid_result: SlashCommandResult = SlashCommandResult(
+                command="/bids validate",
+                success=report["valid"] and ready,
+                markdown_output="\n".join(lines),
+                data={"report": report, "blockers": blockers},
+            )
+            return valid_result
+
+        # Default summary view
+        summary_lines: list[str] = [
+            f"### BIDS Dataset Summary: `{target_path.name}`\n",
+            f"- **Dataset Name:** {report['dataset_name']}",
+            f"- **BIDS Version:** {report['bids_version']}",
+            f"- **Total Subjects:** {report['subject_count']}",
+            f"- **Sessions Present:** "
+            f"{'Yes' if report['sessions_found'] else 'No'}\n",
+            "| Modality | File Count |",
+            "| :--- | :--- |",
+        ]
+        for mod, count in report.get("modality_counts", {}).items():
+            summary_lines.append(f"| `{mod}` | {count} |")
+
+        if report.get("cohort_matrix"):
+            summary_lines.extend([
+                "",
+                "| Subject | Sessions | T1w | BOLD | FMAP | DWI |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |",
+            ])
+            for row in report["cohort_matrix"][:20]:
+                summary_lines.append(
+                    f"| `{row['subject']}` | {len(row['sessions'])} | "
+                    f"{'✓' if row['has_t1w'] else '✗'} | "
+                    f"{'✓' if row['has_bold'] else '✗'} | "
+                    f"{'✓' if row['has_fmap'] else '✗'} | "
+                    f"{'✓' if row['has_dwi'] else '✗'} |"
+                )
+
+        summary_result: SlashCommandResult = SlashCommandResult(
+            command="/bids summary",
+            success=True,
+            markdown_output="\n".join(summary_lines),
+            data=report,
+        )
+        return summary_result
+
+    def _handle_export(self, args: list[str]) -> SlashCommandResult:
+        """Export reproducible BIDS derivative provenance metadata or artifacts.
+
+        Parameters
+        ------------
+        args: list[str]
+            Subcommands ('provenance') and optional workflow ID.
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                Export status card with formatted JSON snippet.
+        """
+        subcmd: str = args[0].lower() if args else "provenance"
+        if subcmd == "provenance":
+            wf_id: str | None = (
+                args[1].strip()
+                if len(args) > 1
+                else self._last_planned_workflow_id
+            )
+            from neuri.literature.provenance_exporter import (
+                BIDSProvenanceExporter,
+            )
+
+            exporter: BIDSProvenanceExporter = BIDSProvenanceExporter(
+                self._blackboard
+            )
+            manifest: dict[str, Any] = exporter.export_dataset_description(
+                workflow_id=wf_id
+            )
+            dest_file: Path = (
+                self._workspace_dir / "dataset_description.json"
+            )
+            exporter.write_dataset_description(
+                dest_file, workflow_id=wf_id
+            )
+            md_out: str = (
+                f"### Exported BIDS Derivative Provenance Manifest\n\n"
+                f"- **Written to:** `{dest_file}`\n"
+                f"- **Workflow ID:** `{wf_id or 'all'}`\n"
+                f"- **GeneratedBy Entries:** "
+                f"{len(manifest.get('GeneratedBy', []))}\n\n"
+                f"```json\n{json.dumps(manifest, indent=2)}\n```"
+            )
+            export_result: SlashCommandResult = SlashCommandResult(
+                command="/export provenance",
+                success=True,
+                markdown_output=md_out,
+                data=manifest,
+            )
+            return export_result
+
+        unknown_result: SlashCommandResult = SlashCommandResult(
+            command="/export",
+            success=False,
+            markdown_output=(
+                f"Unknown export target: `{subcmd}`. "
+                "Supported targets: `/export provenance [workflow_id]`."
+            ),
+        )
+        return unknown_result
+
+    def _handle_plan(self, args: list[str]) -> SlashCommandResult:
+        """Decompose natural language prompt into DAG or inspect/edit existing DAG.
+
+        Parameters
+        ------------
+        args: list[str]
+            User research prompt string or subcommands ('inspect', 'edit', 'set').
+
+        Returns
+        --------
+            SlashCommandResult: SlashCommandResult instance
+                DAG preview card or node edit confirmation.
+        """
+        if args and args[0].lower() == "inspect":
+            target_node_id: str | None = (
+                args[1].strip() if len(args) > 1 else None
+            )
+            wf_nodes: list[TaskNode] = (
+                self._blackboard.get_nodes_by_workflow(
+                    self._last_planned_workflow_id
+                )
+                if self._last_planned_workflow_id
+                else self._blackboard.list_nodes()
+            )
+            if target_node_id:
+                node = self._blackboard.get_node(target_node_id)
+                if not node:
+                    return SlashCommandResult(
+                        command="/plan inspect",
+                        success=False,
+                        markdown_output=f"Node `{target_node_id}` not found.",
+                    )
+                env = node.envelope
+                instr: str = env.task_instruction if env else "None"
+                diag: str = (
+                    env.diagnostic_feedback
+                    if env and env.diagnostic_feedback
+                    else "None"
+                )
+                input_arts: list[str] = (
+                    [a.uri for a in env.input_artifacts]
+                    if env and env.input_artifacts
+                    else []
+                )
+                arts_str: str = ", ".join(input_arts) if input_arts else "None"
+                md_node: str = (
+                    f"### Node Inspector: `{node.node_id}`\n\n"
+                    f"- **Workflow ID:** `{node.workflow_id}`\n"
+                    f"- **Agent Role:** `{node.agent_role}`\n"
+                    f"- **Harness:** `{node.harness_id}`  │  "
+                    f"**Model:** `{node.model or 'default'}`\n"
+                    f"- **State:** `{node.state.value}`  │  "
+                    f"**Attempt:** {node.attempt}/{node.max_retries}\n"
+                    f"- **Task Instruction:**\n  > {instr}\n"
+                    f"- **Diagnostic Feedback:**\n  > {diag}\n"
+                    f"- **Input Artifacts:** {arts_str}\n\n"
+                    f"Use `/plan edit {node.node_id} <instruction>` to modify."
+                )
+                return SlashCommandResult(
+                    command="/plan inspect",
+                    success=True,
+                    markdown_output=md_node,
+                    data={"node": node.model_dump(mode="json")},
+                )
+
+            # Tabular inspection overview
+            table_rows: list[str] = [
+                "### Active DAG Node Inspector\n",
+                "| Node ID | Role | Harness | Model | Attempt | State |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |",
+            ]
+            for n in wf_nodes:
+                table_rows.append(
+                    f"| `{n.node_id}` | `{n.agent_role}` | `{n.harness_id}` | "
+                    f"`{n.model or 'default'}` | {n.attempt}/{n.max_retries} | "
+                    f"`{n.state.value}` |"
+                )
+            table_rows.append(
+                "\nUse `/plan inspect <node_id>` to view full details."
+            )
+            return SlashCommandResult(
+                command="/plan inspect",
+                success=True,
+                markdown_output="\n".join(table_rows),
+                data={"nodes": [n.model_dump(mode="json") for n in wf_nodes]},
+            )
+
+        if args and args[0].lower() == "edit" and len(args) >= 3:
+            node_id_to_edit: str = args[1].strip()
+            new_instr: str = " ".join(args[2:]).strip()
+            node_to_edit = self._blackboard.get_node(node_id_to_edit)
+            if not node_to_edit:
+                return SlashCommandResult(
+                    command="/plan edit",
+                    success=False,
+                    markdown_output=f"Node `{node_id_to_edit}` not found.",
+                )
+            if node_to_edit.envelope is not None:
+                updated_env = node_to_edit.envelope.model_copy(
+                    update={"task_instruction": new_instr}
+                )
+                self._blackboard.update_node_envelope(
+                    node_id_to_edit, updated_env
+                )
+            md_edit: str = (
+                f"### Updated Task Instruction for Node `{node_id_to_edit}`\n\n"
+                f"**New Instruction:**\n> {new_instr}"
+            )
+            return SlashCommandResult(
+                command="/plan edit",
+                success=True,
+                markdown_output=md_edit,
+                data={"node_id": node_id_to_edit, "instruction": new_instr},
+            )
+
+        if args and args[0].lower() == "set" and len(args) >= 3:
+            node_id_to_set: str = args[1].strip()
+            new_harness: str = args[2].strip()
+            new_model: str | None = (
+                args[3].strip() if len(args) > 3 else None
+            )
+            node_to_set = self._blackboard.get_node(node_id_to_set)
+            if not node_to_set:
+                return SlashCommandResult(
+                    command="/plan set",
+                    success=False,
+                    markdown_output=f"Node `{node_id_to_set}` not found.",
+                )
+            if node_to_set.envelope is not None:
+                updated_env = node_to_set.envelope.model_copy(
+                    update={
+                        "harness_id": new_harness,
+                        "model": new_model,
+                    }
+                )
+                self._blackboard.update_node_envelope(
+                    node_id_to_set, updated_env
+                )
+            with self._blackboard.connection() as conn:
+                conn.execute(
+                    "UPDATE task_nodes SET harness_id = ? "
+                    "WHERE node_id = ?;",
+                    (new_harness, node_id_to_set),
+                )
+            md_set: str = (
+                f"### Updated Routing for Node `{node_id_to_set}`\n\n"
+                f"- **Harness:** `{new_harness}`\n"
+                f"- **Model:** `{new_model or 'default'}`"
+            )
+            return SlashCommandResult(
+                command="/plan set",
+                success=True,
+                markdown_output=md_set,
+                data={
+                    "node_id": node_id_to_set,
+                    "harness": new_harness,
+                    "model": new_model,
+                },
+            )
+
         prompt: str = " ".join(args).strip()
         if not prompt:
             help_msg: str = (
                 "### Neuri DAG Planner\n\n"
                 "**Usage:** `/plan <research instruction or pipeline>`\n\n"
+                "- `/plan inspect [node_id]`: Inspect node details\n"
+                "- `/plan edit <node_id> <instruction>`: Modify instruction\n"
+                "- `/plan set <node_id> <harness> [model]`: Modify routing\n\n"
                 "*Example:* `/plan Run skull-stripping with BET and generate QA`"
             )
             return SlashCommandResult(
@@ -1753,6 +2111,58 @@ class SlashCommandRouter:
                 pass
 
         viewer_url: str = bridge.get_url()
+
+        if clean_args and clean_args[0].lower() == "compare" and len(clean_args) >= 3:
+            fixed_uri: str = clean_args[1].strip()
+            moving_uri: str = clean_args[2].strip()
+            scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
+            comp_spec: NiiVueSceneSpec = NiiVueSceneSpec(
+                scene_id=scene_id,
+                title=(
+                    f"Neuri Compare: {Path(fixed_uri).name} vs "
+                    f"{Path(moving_uri).name}"
+                ),
+                volumes=[
+                    NiiVueLayerSpec(
+                        artifact_uri=fixed_uri,
+                        colormap="gray",
+                        opacity=1.0,
+                    ),
+                    NiiVueLayerSpec(
+                        artifact_uri=moving_uri,
+                        colormap="red",
+                        opacity=0.5,
+                    ),
+                ],
+                slice_type="multiplanar",
+            )
+            bridge.push_scene(comp_spec)
+
+            if not no_open:
+                try:
+                    webbrowser.open(viewer_url)
+                except Exception:
+                    pass
+
+            comp_msg: str = (
+                f"### NiiVue Comparison Scene Loaded\n\n"
+                f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
+                f"- **Reference (Fixed):** `{fixed_uri}` (grayscale)\n"
+                f"- **Registered (Moving):** `{moving_uri}` "
+                f"(red overlay, 50% opacity)\n\n"
+                f"*Inspect crosshair alignment and registration edges.*"
+            )
+            return SlashCommandResult(
+                command="/view",
+                success=True,
+                markdown_output=comp_msg,
+                data={
+                    "viewer_url": viewer_url,
+                    "fixed_uri": fixed_uri,
+                    "moving_uri": moving_uri,
+                },
+            )
+
         target_uri: str = clean_args[0].strip() if clean_args else ""
 
         if not target_uri:
@@ -1815,7 +2225,6 @@ class SlashCommandRouter:
             f"### NiiVue WebGL2 Visualization Bridge\n\n"
             f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
             f"- **Status:** Bridge listening on port 8421.\n\n"
-            f"Pass a volume path or URI to inspect (e.g. `/view sub-01_T1w.nii.gz`)."
         )
         return SlashCommandResult(
             command="/view",
@@ -1880,7 +2289,9 @@ class SlashCommandRouter:
             if target_node is not None:
                 target_wf_id = target_node.workflow_id
 
-        ok: bool = self._orchestrator.retry_node(node_id)
+        ok: bool = self._orchestrator.retry_node(
+            node_id, operator_feedback=feedback
+        )
         if ok:
             fb_note: str = (
                 f"\n- **Operator Guidance:** {feedback}" if feedback else ""
@@ -2532,6 +2943,37 @@ class SlashCommandRouter:
                     ),
                 )
 
+        elif subcmd == "methods":
+            wf_id: str | None = (
+                args[1].strip()
+                if len(args) > 1
+                else self._last_planned_workflow_id
+            )
+            from neuri.literature.provenance_exporter import (
+                MethodsSectionSynthesizer,
+            )
+
+            synth: MethodsSectionSynthesizer = MethodsSectionSynthesizer(
+                self._blackboard
+            )
+            res: dict[str, Any] = synth.synthesize_methods(
+                workflow_id=wf_id
+            )
+            md_methods: str = (
+                f"### COBIDAS-Compliant Methods Synthesis ({wf_id or 'Active'})\n\n"
+                f"{res['methods_markdown']}\n\n"
+                f"---\n"
+                f"**Audit Summary:** {res['audit_critical_issues']} critical "
+                f"issues, {res['audit_major_issues']} major issues across "
+                f"5-pass referee review."
+            )
+            return SlashCommandResult(
+                command="/paperback methods",
+                success=True,
+                markdown_output=md_methods,
+                data=res,
+            )
+
         elif subcmd == "profile":
             skill_dir: Path | None = PathResolver.resolve_skill_dir("scientific-writer")
             profile_file: Path | None = (
@@ -2603,8 +3045,29 @@ class SlashCommandRouter:
                 "- **Sentence Cadence:** ~22-30 words/sentence across IMRAD sections",
                 "- **Voice Ratio:** ~68% active voice, ~32% passive voice",
                 "- **Anti-Cliché Invariant:** Zero AI rhetorical filler words\n",
-                "Style profile saved to `references/style-profile.md`."
+                "Style profile saved to `references/style-profile.md`.",
             ]
+            try:
+                ref_dir: Path = Path("references")
+                ref_dir.mkdir(parents=True, exist_ok=True)
+                profile_file_path: Path = ref_dir / "style-profile.md"
+                profile_content: str = (
+                    f"# Style Profile: {detected}\n\n"
+                    f"## Calibrated Linguistic Parameters\n"
+                    f"- **Author Detected:** {detected}\n"
+                    f"- **Scholar Titles Found:** {len(titles_found)}\n"
+                    f"- **Open-Access Papers Retrieved:** {len(papers_found)}\n\n"
+                    f"### Stylistic Invariants\n"
+                    f"- **Orthography:** Strict British English conventions\n"
+                    f"- **Sentence Cadence:** ~22-30 words/sentence "
+                    f"across IMRAD sections\n"
+                    f"- **Voice Ratio:** ~68% active voice, ~32% passive voice\n"
+                    f"- **Anti-Cliché Invariant:** Zero AI rhetorical filler words\n"
+                )
+                profile_file_path.write_text(profile_content, encoding="utf-8")
+            except Exception:
+                pass
+
             return SlashCommandResult(
                 command="/paperback calibrate",
                 success=True,
@@ -2762,6 +3225,25 @@ class SlashCommandRouter:
                         "Install via `uv tool install notebooklm-mcp-cli`."
                     ),
                 )
+            try:
+                proc = subprocess.run(
+                    [nlm_path, "notebook", "list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    return SlashCommandResult(
+                        command="/notebooklm list",
+                        success=True,
+                        markdown_output=(
+                            f"### NotebookLM Notebooks\n\n```text\n"
+                            f"{proc.stdout.strip()}\n```"
+                        ),
+                        data={"output": proc.stdout},
+                    )
+            except Exception:
+                pass
             return SlashCommandResult(
                 command="/notebooklm list",
                 success=True,
@@ -2815,7 +3297,7 @@ class SlashCommandRouter:
             "| `/shell [host] <cmd>` | Run command locally or on remote host |\n"
             "| `/history [n|clear]` | View or clear command and prompt history |\n"
             "| `/theme [name]` | List or switch visual color themes |\n"
-            "| `/view [path]` | Open local NiiVue WebGL2 visualization session |\n"
+            "| `/view` | Open local NiiVue WebGL2 visualization session |\n"
             "| `/retry [node_id]` | Resume a node paused in WAITING_OPERATOR |\n"
             "| `/cancel [node_id]` | Cancel a paused node in WAITING_OPERATOR |\n"
             "| `/clear` | Clear the chat screen (preserves SQLite state) |\n"

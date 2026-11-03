@@ -9,10 +9,13 @@ typed execution results.
 from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Callable
+import contextlib
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import time
 from typing import Any
 import uuid
@@ -228,6 +231,122 @@ class BaseHarnessAdapter(ABC):
                 Extracted telemetry events and visible content deltas.
         """
         pass
+
+    @classmethod
+    def build_composite_prompt(
+        cls,
+        envelope: NeuriTaskEnvelope,
+        include_system_prompt: bool = True,
+    ) -> str:
+        """Compose canonical structured prompt across all harness adapters.
+
+        Parameters
+        ------------
+        envelope: NeuriTaskEnvelope
+            Task envelope containing instructions, artifacts, and feedback.
+        include_system_prompt: bool
+            Whether to prepend the system prompt. Defaults to True.
+
+        Returns
+        --------
+            str: string object
+                Fully assembled composite prompt string.
+        """
+        parts: list[str] = []
+
+        if include_system_prompt and envelope.system_prompt:
+            sys_text: str = envelope.system_prompt.strip()
+            if sys_text:
+                parts.append(f"System: {sys_text}")
+
+        parts.append(f"Task Instruction:\n{envelope.task_instruction}")
+
+        if envelope.input_artifacts:
+            art_lines: list[str] = ["### Input Artifacts:"]
+            for art in envelope.input_artifacts:
+                line_parts: list[str] = [
+                    f"- {art.artifact_id}: {art.uri} "
+                    f"(modality: {art.modality}, space: {art.space or 'native'}"
+                ]
+                if art.header_summary:
+                    hs = art.header_summary
+                    if hs.shape:
+                        line_parts.append(f", Shape: {hs.shape}")
+                    if hs.dtype:
+                        line_parts.append(f", Dtype: {hs.dtype}")
+                    if hs.orientation:
+                        line_parts.append(f", Orientation: {hs.orientation}")
+                    if hs.tr_seconds is not None:
+                        line_parts.append(f", TR: {hs.tr_seconds}s")
+                    if hs.value_range:
+                        line_parts.append(f", Range: {hs.value_range}")
+                line_parts.append(")")
+                art_lines.append("".join(line_parts))
+            parts.append("\n".join(art_lines))
+
+        if envelope.diagnostic_feedback and envelope.attempt_number > 0:
+            diag_text: str = envelope.diagnostic_feedback.strip()
+            if diag_text:
+                parts.append(f"Previous Attempt Feedback: {diag_text}")
+
+        if envelope.skill_paths:
+            skill_lines: list[str] = [
+                f"Active Skills: {', '.join(envelope.skill_paths)}"
+            ]
+            parts.append("\n".join(skill_lines))
+
+        return "\n\n".join(parts)
+
+    @classmethod
+    def write_runtime_mcp_config(
+        cls,
+        envelope: NeuriTaskEnvelope,
+        workspace_dir: Path | None = None,
+    ) -> Path | None:
+        """Write runtime MCP configuration file if envelope declares mcp_servers.
+
+        Parameters
+        ------------
+        envelope: NeuriTaskEnvelope
+            Task envelope containing potential MCP server configurations.
+        workspace_dir: Path | None
+            Base workspace directory. Defaults to None (falls back to /tmp).
+
+        Returns
+        --------
+            Path | None: Path object or None
+                Path to generated JSON configuration file, or None if no MCP servers.
+        """
+        if not envelope.mcp_servers:
+            return None
+
+        cfg_dir: Path
+        if workspace_dir is not None:
+            cfg_dir = workspace_dir / ".neuri" / "runtime"
+        else:
+            cfg_dir = Path("/tmp") / ".neuri_runtime"
+        with contextlib.suppress(Exception):
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+
+        mcp_payload: dict[str, Any] = {"mcpServers": {}}
+        for server in envelope.mcp_servers:
+            s_name: str = getattr(server, "name", str(uuid.uuid4().hex[:8]))
+            s_cmd: str = getattr(server, "command", sys.executable)
+            s_args: list[str] = getattr(server, "args", [])
+            s_env: dict[str, str] = getattr(server, "env", {})
+            mcp_payload["mcpServers"][s_name] = {
+                "command": s_cmd,
+                "args": s_args,
+                "env": s_env,
+            }
+
+        out_path: Path = cfg_dir / f"mcp_{envelope.node_id}.json"
+        with contextlib.suppress(Exception):
+            out_path.write_text(
+                json.dumps(mcp_payload, indent=2), encoding="utf-8"
+            )
+            return out_path
+        return None
 
     def build_environment(
         self, envelope: NeuriTaskEnvelope

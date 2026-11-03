@@ -4,6 +4,7 @@ Wraps the OpenClaw CLI for headless streaming execution and interactive
 terminal escalation.
 """
 
+from pathlib import Path
 from typing import Any
 
 from neuri.adapters.base import BaseHarnessAdapter
@@ -96,24 +97,7 @@ class OpenClawAdapter(BaseHarnessAdapter):
             list[str]: list object
                 Argument list for openclaw subprocess invocation.
         """
-        prompt_parts: list[str] = []
-        if envelope.system_prompt:
-            prompt_parts.append(f"System: {envelope.system_prompt}")
-        if envelope.input_artifacts:
-            art_descriptions: list[str] = [
-                f"- {art.artifact_id}: {art.uri} (modality: {art.modality}, "
-                f"space: {art.space or 'native'})"
-                for art in envelope.input_artifacts
-            ]
-            prompt_parts.append(
-                "Input Artifacts:\n" + "\n".join(art_descriptions)
-            )
-        if envelope.diagnostic_feedback:
-            prompt_parts.append(
-                f"Previous Attempt Feedback: {envelope.diagnostic_feedback}"
-            )
-        prompt_parts.append(f"Task Instruction:\n{envelope.task_instruction}")
-        full_prompt: str = "\n\n".join(prompt_parts)
+        full_prompt: str = self.build_composite_prompt(envelope)
 
         cmd: list[str] = [
             self.executable_name,
@@ -123,6 +107,11 @@ class OpenClawAdapter(BaseHarnessAdapter):
         ]
         if envelope.model:
             cmd.extend(["--model", envelope.model])
+
+        mcp_cfg: Path | None = self.write_runtime_mcp_config(envelope)
+        if mcp_cfg is not None:
+            cmd.extend(["--mcp-config", str(mcp_cfg)])
+
         cmd.extend(["--message", full_prompt])
         return cmd
 
@@ -141,6 +130,8 @@ class OpenClawAdapter(BaseHarnessAdapter):
             list[str]: list object
                 Argument list for interactive openclaw execution.
         """
+        full_prompt: str = self.build_composite_prompt(envelope)
+
         cmd: list[str] = [
             self.executable_name,
             "agent",
@@ -148,7 +139,12 @@ class OpenClawAdapter(BaseHarnessAdapter):
         ]
         if envelope.model:
             cmd.extend(["--model", envelope.model])
-        cmd.extend(["--message", envelope.task_instruction])
+
+        mcp_cfg: Path | None = self.write_runtime_mcp_config(envelope)
+        if mcp_cfg is not None:
+            cmd.extend(["--mcp-config", str(mcp_cfg)])
+
+        cmd.extend(["--message", full_prompt])
         return cmd
 
     def parse_stream_line(self, raw_line: str) -> NormalizedStreamResult:

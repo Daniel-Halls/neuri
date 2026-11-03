@@ -4,6 +4,7 @@ Provides discovery, resolution, and registration of external agent harness
 adapters (Antigravity, Codex, OpenCode, OpenClaw, Ollama).
 """
 
+import time
 from typing import Any
 
 from neuri.adapters.antigravity import AntigravityAdapter
@@ -81,6 +82,9 @@ class AdapterRegistry:
                 Initializes internal adapters mapping.
         """
         self._adapters: dict[str, BaseHarnessAdapter] = {}
+        self._cache_ttl_seconds: float = 120.0
+        self._models_cache: dict[str, tuple[float, list[str]]] = {}
+        self._available_cache: tuple[float, list[str]] | None = None
         self._register_defaults()
 
         if custom_adapters is not None:
@@ -151,24 +155,36 @@ class AdapterRegistry:
         """
         key: str = harness_id.strip().lower()
         self._adapters[key] = adapter
+        self._available_cache = None
+        self._models_cache.pop(key, None)
 
-    def list_available(self) -> list[str]:
+    def list_available(self, force_refresh: bool = False) -> list[str]:
         """List distinct available harness IDs whose CLI binaries are on PATH.
 
         Parameters
         ------------
-        None
+        force_refresh: bool
+            Bypass internal TTL cache if True. Defaults to False.
 
         Returns
         --------
             list[str]: list object
                 Sorted list of unique canonical available harness IDs.
         """
+        now: float = time.monotonic()
+        if (
+            not force_refresh
+            and self._available_cache is not None
+            and (now - self._available_cache[0]) < self._cache_ttl_seconds
+        ):
+            return list(self._available_cache[1])
+
         canonical_ids: set[str] = set()
         for adapter in self._adapters.values():
             if adapter.is_available():
                 canonical_ids.add(adapter.harness_id)
         available_sorted: list[str] = sorted(canonical_ids)
+        self._available_cache = (now, available_sorted)
         return available_sorted
 
     def list_all(self) -> list[str]:
@@ -186,21 +202,33 @@ class AdapterRegistry:
         all_ids: list[str] = sorted(set(self._adapters.keys()))
         return all_ids
 
-    def get_models_for_harness(self, harness_id: str) -> list[str]:
+    def get_models_for_harness(
+        self, harness_id: str, force_refresh: bool = False
+    ) -> list[str]:
         """Query real model list directly from the target harness binary.
 
         Parameters
         ------------
         harness_id: str
             Target harness ID (e.g. 'agy', 'ollama').
+        force_refresh: bool
+            Bypass internal TTL cache if True. Defaults to False.
 
         Returns
         --------
             list[str]: list object
                 Models returned directly from the harness binary.
         """
+        key: str = harness_id.strip().lower()
+        now: float = time.monotonic()
+        if not force_refresh and key in self._models_cache:
+            cache_ts, cached_list = self._models_cache[key]
+            if (now - cache_ts) < self._cache_ttl_seconds:
+                return list(cached_list)
+
         adapter: BaseHarnessAdapter = self.get_adapter(harness_id)
         models: list[str] = adapter.list_available_models()
+        self._models_cache[key] = (now, models)
         return models
 
     def list_all_models(self) -> dict[str, list[str]]:

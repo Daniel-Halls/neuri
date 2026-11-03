@@ -140,27 +140,7 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
             str: string object
                 Combined prompt text.
         """
-        prompt_parts: list[str] = []
-        if envelope.system_prompt:
-            prompt_parts.append(f"System: {envelope.system_prompt}")
-
-        if envelope.input_artifacts:
-            art_descriptions: list[str] = [
-                f"- {art.artifact_id}: {art.uri} (modality: {art.modality}, "
-                f"space: {art.space or 'native'})"
-                for art in envelope.input_artifacts
-            ]
-            prompt_parts.append(
-                "Input Artifacts:\n" + "\n".join(art_descriptions)
-            )
-
-        if envelope.diagnostic_feedback:
-            prompt_parts.append(
-                f"Previous Attempt Feedback: {envelope.diagnostic_feedback}"
-            )
-
-        prompt_parts.append(f"Task Instruction:\n{envelope.task_instruction}")
-        full_prompt: str = "\n\n".join(prompt_parts)
+        full_prompt: str = self.build_composite_prompt(envelope)
         return full_prompt
 
     def build_headless_command(
@@ -205,13 +185,14 @@ class OllamaLocalAdapter(BaseHarnessAdapter):
                 Argument list for interactive ollama execution.
         """
         target_model: str = self._resolve_target_model(envelope)
+        full_prompt: str = self._compose_prompt(envelope)
         cmd: list[str] = [
             self.executable_name,
             "run",
         ]
         if target_model:
             cmd.append(target_model)
-        cmd.append(envelope.task_instruction)
+        cmd.append(full_prompt)
         return cmd
 
     def parse_stream_line(self, raw_line: str) -> NormalizedStreamResult:

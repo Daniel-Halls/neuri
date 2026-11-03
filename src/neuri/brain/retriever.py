@@ -102,9 +102,22 @@ class BrainRetriever:
         if not cleaned_query:
             return results
 
-        scope_filter: str = (
-            f"AND e.scope = '{scope.value}'" if scope is not None else ""
-        )
+        where_clauses: list[str] = ["brain_fts MATCH ?"]
+        params: list[Any] = [cleaned_query]
+
+        if scope is not None:
+            where_clauses.append("e.scope = ?")
+            params.append(scope.value)
+
+        if category is not None:
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM brain_observations o "
+                "WHERE o.entity_id = e.entity_id AND o.category = ?)"
+            )
+            params.append(category.value)
+
+        where_sql: str = " AND ".join(where_clauses)
+        params.append(limit)
 
         with self._indexer._get_connection() as conn:
             sql: str = f"""
@@ -112,11 +125,11 @@ class BrainRetriever:
                        e.title, e.scope, e.file_path, e.summary_excerpt
                 FROM brain_fts
                 JOIN brain_entities e ON brain_fts.entity_id = e.entity_id
-                WHERE brain_fts MATCH ? {scope_filter}
+                WHERE {where_sql}
                 ORDER BY rank ASC
                 LIMIT ?
             """
-            cursor = conn.execute(sql, (cleaned_query, limit))
+            cursor = conn.execute(sql, tuple(params))
             for row in cursor.fetchall():
                 entity_id: str = row["entity_id"]
                 obs_list: list[BrainObservation] = (
@@ -174,7 +187,7 @@ class BrainRetriever:
                     hit.entity_id
                 )
                 for rel in relations:
-                    target_id: str = rel.target_permalink.lower()
+                    target_id: str = rel.target_permalink.strip()
                     if (
                         target_id not in matched_entity_ids
                         and len(matched_entity_ids) < 8

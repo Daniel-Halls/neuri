@@ -169,7 +169,7 @@ def test_antigravity_adapter_build_interactive_command(
     cmd: list[str] = adapter.build_interactive_command(sample_envelope)
     assert cmd[0] == "agy"
     assert "-i" in cmd
-    assert sample_envelope.task_instruction in cmd
+    assert any(sample_envelope.task_instruction in arg for arg in cmd)
 
 
 def test_antigravity_adapter_parse_stream_line() -> None:
@@ -261,7 +261,7 @@ def test_codex_adapter_build_interactive_command(
     adapter: CodexAdapter = CodexAdapter()
     cmd: list[str] = adapter.build_interactive_command(sample_envelope)
     assert cmd[0] == "codex"
-    assert cmd[1] == sample_envelope.task_instruction
+    assert sample_envelope.task_instruction in cmd[1]
 
 
 # ---------------------------------------------------------------------------

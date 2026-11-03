@@ -10,6 +10,7 @@ import sys
 from typing import Any
 
 from neuri.core.schemas import ModalityType, RemoteArtifact
+from neuri_worker.bids_validator import BIDSLayoutValidator
 from neuri_worker.sanitizer import NeuroHeaderSanitizer
 
 
@@ -59,6 +60,28 @@ class RemoteWorkerMCPServer:
         req_id: Any = request_dict.get("id")
         method: str = str(request_dict.get("method", ""))
         params: dict[str, Any] = request_dict.get("params", {})
+
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {
+                        "name": "neuri-worker-mcp",
+                        "version": "0.1.0",
+                    },
+                },
+            }
+
+        if method == "ping":
+            return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+
+        if req_id is None and (
+            method.startswith("notifications/") or method == "initialized"
+        ):
+            return {}
 
         if method == "tools/list":
             tools_list: list[dict[str, Any]] = self._get_tool_definitions()
@@ -124,7 +147,21 @@ class RemoteWorkerMCPServer:
             {
                 "name": "validate_bids_directory",
                 "description": (
-                    "Inspect structure of BIDS dataset directory on host."
+                    "Inspect structure and sidecars of BIDS dataset on host."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "pipeline": {"type": "string", "default": "fmriprep"},
+                    },
+                    "required": ["path"],
+                },
+            },
+            {
+                "name": "bids_summary",
+                "description": (
+                    "Generate cohort completeness matrix for BIDS dataset."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -189,19 +226,33 @@ class RemoteWorkerMCPServer:
 
         if name == "validate_bids_directory":
             bids_dir: Path = Path(str(args.get("path", "")))
-            exists: bool = bids_dir.is_dir()
-            desc_file: bool = (bids_dir / "dataset_description.json").is_file()
-            participants: bool = (bids_dir / "participants.tsv").is_file()
-            subs: list[str] = [
-                d.name for d in bids_dir.glob("sub-*") if d.is_dir()
-            ]
+            validator: BIDSLayoutValidator = BIDSLayoutValidator()
+            scan_res: dict[str, Any] = validator.scan_dataset(bids_dir)
+            pipeline_name: str = str(args.get("pipeline", "fmriprep"))
+            ready, blockers = validator.validate_preflight_cohort(
+                bids_dir, pipeline_name=pipeline_name
+            )
             return {
-                "valid_structure": exists and desc_file,
-                "dataset_description_present": desc_file,
-                "participants_tsv_present": participants,
-                "subject_count": len(subs),
-                "subjects": subs[:10],
+                "valid_structure": scan_res["valid"],
+                "dataset_description_present": (
+                    scan_res["dataset_name"] != "Unknown"
+                ),
+                "participants_tsv_present": (
+                    "participants.tsv is missing"
+                    not in " ".join(scan_res["warnings"])
+                ),
+                "subject_count": scan_res["subject_count"],
+                "subjects": scan_res["subjects"][:10],
+                "scan_details": scan_res,
+                "preflight_ready": ready,
+                "preflight_blockers": blockers,
             }
+
+        if name == "bids_summary":
+            bids_dir = Path(str(args.get("path", "")))
+            validator = BIDSLayoutValidator()
+            scan_res = validator.scan_dataset(bids_dir)
+            return {"summary": scan_res}
 
         if name == "verify_artifacts":
             paths_to_check: list[str] = [str(p) for p in args.get("paths", [])]
@@ -258,6 +309,10 @@ def main() -> None:
     """
     server: RemoteWorkerMCPServer = RemoteWorkerMCPServer()
     server.run_stdio_loop()
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__: list[str] = [
