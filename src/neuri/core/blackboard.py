@@ -7,12 +7,14 @@ streaming telemetry events, and verified citations ledger.
 
 from collections import deque
 from collections.abc import Generator
+import contextlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import sqlite3
+import threading
 from typing import Any
 
 from neuri.core.schemas import (
@@ -546,6 +548,7 @@ class Blackboard:
 
         self._timeout: float = timeout_seconds
         self._shared_conn: sqlite3.Connection | None = None
+        self._local: threading.local = threading.local()
 
         if self._is_memory:
             self._shared_conn = self._create_connection()
@@ -554,6 +557,30 @@ class Blackboard:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self.connection() as conn:
                 self._init_schema(conn)
+
+    def close(self) -> None:
+        """Close active SQLite connections associated with this blackboard.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Closes open connections and resets internal state.
+        """
+        if self._shared_conn is not None:
+            with contextlib.suppress(Exception):
+                self._shared_conn.close()
+            self._shared_conn = None
+        cached_conn: sqlite3.Connection | None = getattr(
+            self._local, "conn", None
+        )
+        if cached_conn is not None:
+            with contextlib.suppress(Exception):
+                cached_conn.close()
+            self._local.conn = None
 
     @property
     def db_path(self) -> Path:
@@ -615,12 +642,14 @@ class Blackboard:
             with conn:
                 yield conn
         else:
-            conn = self._create_connection()
-            try:
-                with conn:
-                    yield conn
-            finally:
-                conn.close()
+            cached_conn: sqlite3.Connection | None = getattr(
+                self._local, "conn", None
+            )
+            if cached_conn is None:
+                cached_conn = self._create_connection()
+                self._local.conn = cached_conn
+            with cached_conn:
+                yield cached_conn
 
     @contextmanager
     def _connection(self) -> Generator[sqlite3.Connection, None, None]:
@@ -1103,6 +1132,42 @@ class Blackboard:
                 self._row_to_task_node(r) for r in rows
             ]
             return result_nodes
+
+    def list_nodes(self, workflow_id: str | None = None) -> list[TaskNode]:
+        """List task nodes, optionally filtered by workflow ID.
+
+        Parameters
+        ------------
+        workflow_id: str | None
+            Optional workflow identifier. Defaults to None (all nodes).
+
+        Returns
+        --------
+            list[TaskNode]: list object
+                Chronologically ordered list of task nodes.
+        """
+        with self.connection() as conn:
+            if workflow_id:
+                cursor: sqlite3.Cursor = conn.execute(
+                    """
+                    SELECT * FROM task_nodes
+                    WHERE workflow_id = ?
+                    ORDER BY created_at ASC, node_id ASC;
+                    """,
+                    (workflow_id,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM task_nodes
+                    ORDER BY created_at ASC, node_id ASC;
+                    """
+                )
+            rows: list[Any] = cursor.fetchall()
+            nodes_list: list[TaskNode] = [
+                self._row_to_task_node(r) for r in rows
+            ]
+            return nodes_list
 
     def update_node_envelope(
         self, node_id: str, envelope: NeuriTaskEnvelope
@@ -1677,6 +1742,21 @@ class Blackboard:
         is_valid: bool = True
         return is_valid
 
+    def validate_dag_acyclic(self, workflow_id: str) -> bool:
+        """Verify that workflow DAG contains zero cycles (alias for validate_dag).
+
+        Parameters
+        ------------
+        workflow_id: str
+            Workflow identifier to validate.
+
+        Returns
+        --------
+            bool: boolean object
+                True if graph is strictly acyclic, raises CycleDetectedError if cyclic.
+        """
+        return self.validate_dag(workflow_id)
+
     def get_blocked_nodes(
         self, workflow_id: str
     ) -> list[tuple[TaskNode, list[str]]]:
@@ -1871,6 +1951,65 @@ class Blackboard:
                     node_id,
                 ),
             )
+
+    def schedule_node_retry(
+        self,
+        node_id: str,
+        feedback: str = "",
+    ) -> bool:
+        """Atomically increment attempt count and schedule node retry to PENDING.
+
+        Transitions node from WAITING_OPERATOR, RETRYING, or FAILED back to
+        PENDING state with appended diagnostic feedback.
+
+        Parameters
+        ------------
+        node_id: str
+            Unique task node identifier.
+        feedback: str
+            Diagnostic or operator feedback explaining retry cause. Defaults to "".
+
+        Returns
+        --------
+            bool: boolean object
+                True if retry was scheduled, False if node not found or not retryable.
+        """
+        node: TaskNode | None = self.get_node(node_id)
+        if node is None:
+            return False
+
+        if node.state not in (
+            TaskState.WAITING_OPERATOR,
+            TaskState.RETRYING,
+            TaskState.FAILED,
+        ):
+            return False
+
+        new_attempt: int = node.attempt + 1
+        existing_feedback: str = node.diagnostic_feedback or ""
+        feedback_entry: str = (
+            feedback.strip() if feedback else "Node retry scheduled"
+        )
+        combined_feedback: str = (
+            f"{existing_feedback}\n[Attempt {new_attempt}] {feedback_entry}".strip()
+            if existing_feedback
+            else f"[Attempt {new_attempt}] {feedback_entry}"
+        )
+
+        self.update_node_state(
+            node_id,
+            TaskState.PENDING,
+            diagnostic_feedback=combined_feedback,
+            summary_result=(
+                f"Retry scheduled (attempt {new_attempt}): {feedback_entry}"
+            ),
+        )
+        with self.connection() as conn:
+            conn.execute(
+                "UPDATE task_nodes SET attempt = ? WHERE node_id = ?",
+                (new_attempt, node_id),
+            )
+        return True
 
     # -------------------------------------------------------------------------
     # Remote Artifact Operations

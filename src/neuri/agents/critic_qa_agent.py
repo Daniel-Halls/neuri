@@ -186,6 +186,10 @@ class CriticQAAgent(BaseSpecialistAgent):
                     diagnostic_feedback=feedback,
                     summary_result=f"QA Rejected: {feedback}",
                 )
+                blackboard.update_node_state(
+                    node_id,
+                    TaskState.PENDING,
+                )
             return False
 
 

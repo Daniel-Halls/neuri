@@ -195,6 +195,56 @@ class SSHControlMasterPool:
         except Exception:
             return False
 
+    async def run_command_bytes(
+        self,
+        host: str,
+        command: list[str] | str,
+        timeout_seconds: float = 60.0,
+    ) -> tuple[int, bytes, bytes]:
+        """Execute a command on remote host over SSH and return raw bytes.
+
+        Parameters
+        ------------
+        host: str
+            Target SSH host alias.
+        command: list[str] | str
+            Command and arguments to execute remotely.
+        timeout_seconds: float
+            Execution timeout in seconds. Defaults to 60.0.
+
+        Returns
+        --------
+            tuple[int, bytes, bytes]: tuple object
+                Tuple of (exit_code, stdout_bytes, stderr_bytes).
+        """
+        base_ssh: list[str] = self.build_ssh_args(host)
+        cmd_str: str = (
+            " ".join(command) if isinstance(command, list) else command
+        )
+        full_cmd: list[str] = [*base_ssh, cmd_str]
+
+        try:
+            process: asyncio.subprocess.Process = (
+                await asyncio.create_subprocess_exec(
+                    *full_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(), timeout=timeout_seconds
+            )
+            code: int = process.returncode if process.returncode is not None else 0
+            return (code, stdout_bytes, stderr_bytes)
+        except asyncio.TimeoutError:
+            err_msg: bytes = (
+                f"SSH command timed out after {timeout_seconds}s".encode("utf-8")
+            )
+            return (-2, b"", err_msg)
+        except Exception as exc:
+            err_msg = f"SSH execution failed: {exc}".encode("utf-8")
+            return (-1, b"", err_msg)
+
     async def run_command(
         self,
         host: str,
@@ -217,31 +267,12 @@ class SSHControlMasterPool:
             tuple[int, str, str]: tuple object
                 Tuple of (exit_code, stdout_str, stderr_str).
         """
-        base_ssh: list[str] = self.build_ssh_args(host)
-        cmd_str: str = (
-            " ".join(command) if isinstance(command, list) else command
+        code, stdout_bytes, stderr_bytes = await self.run_command_bytes(
+            host, command, timeout_seconds=timeout_seconds
         )
-        full_cmd: list[str] = [*base_ssh, cmd_str]
-
-        try:
-            process: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_exec(
-                    *full_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(), timeout=timeout_seconds
-            )
-            code: int = process.returncode if process.returncode is not None else 0
-            out_str: str = stdout_bytes.decode("utf-8", errors="replace")
-            err_str: str = stderr_bytes.decode("utf-8", errors="replace")
-            return (code, out_str, err_str)
-        except asyncio.TimeoutError:
-            return (-2, "", f"SSH command timed out after {timeout_seconds}s")
-        except Exception as exc:
-            return (-1, "", f"SSH execution failed: {exc}")
+        out_str: str = stdout_bytes.decode("utf-8", errors="replace")
+        err_str: str = stderr_bytes.decode("utf-8", errors="replace")
+        return (code, out_str, err_str)
 
     async def is_reachable(self, host: str) -> bool:
         """Check if target host is reachable over SSH within 5 seconds.

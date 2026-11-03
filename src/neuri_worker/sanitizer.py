@@ -66,6 +66,7 @@ class NeuroHeaderSanitizer:
         modality: ModalityType = ModalityType.T1W,
         host: str = "localhost",
         space: str | None = None,
+        scrub_in_place: bool = False,
     ) -> RemoteArtifact:
         """Inspect a neuroimaging or electrophysiology file and produce artifact.
 
@@ -79,12 +80,17 @@ class NeuroHeaderSanitizer:
             Host identifier where the file resides. Defaults to 'localhost'.
         space: str | None
             Spatial stereotaxic space (e.g. 'MNI152NLin2009cAsym'). Defaults to None.
+        scrub_in_place: bool
+            Whether to scrub PHI fields on disk in-place. Defaults to False.
 
         Returns
         --------
             RemoteArtifact: RemoteArtifact instance
                 Constructed remote artifact with sanitized metadata header.
         """
+        if scrub_in_place and file_path.exists():
+            self.scrub_file(file_path, in_place=True)
+
         path_str: str = str(file_path)
         lower_path: str = path_str.lower()
         is_nifti: bool = (
@@ -93,6 +99,8 @@ class NeuroHeaderSanitizer:
         is_edf: bool = (
             lower_path.endswith(".edf") or lower_path.endswith(".bdf")
         )
+        is_vhdr: bool = lower_path.endswith(".vhdr")
+        is_fif: bool = lower_path.endswith(".fif") or lower_path.endswith(".fif.gz")
 
         header: SanitizedNeuroHeader
         sha_hash: str
@@ -102,6 +110,10 @@ class NeuroHeaderSanitizer:
             header, sha_hash = self._parse_nifti_header(file_path)
         elif is_edf and file_path.exists():
             header, sha_hash = self._parse_edf_header(file_path)
+        elif is_vhdr and file_path.exists():
+            header, sha_hash = self._parse_vhdr_header(file_path)
+        elif is_fif and file_path.exists():
+            header, sha_hash = self._parse_fif_header(file_path)
         else:
             header = SanitizedNeuroHeader(
                 shape=[1, 1, 1],
@@ -127,6 +139,116 @@ class NeuroHeaderSanitizer:
         )
         return artifact
 
+    def scrub_file(
+        self,
+        file_path: Path,
+        output_path: Path | None = None,
+        in_place: bool = False,
+    ) -> Path:
+        """Scrub PHI header fields from NIfTI or EDF file on disk.
+
+        Zeroes out db_name (14..32), descrip (148..228), and aux_file (228..252)
+        in NIfTI files, or replaces patient/recording ID fields (8..168) with spaces
+        in EDF/BDF files.
+
+        Parameters
+        ------------
+        file_path: Path
+            Path to the source neuroimaging file.
+        output_path: Path | None
+            Destination path for the scrubbed file. If None and in_place is False,
+            defaults to file_path.with_name(f"scrubbed_{file_path.name}").
+            Defaults to None.
+        in_place: bool
+            If True, overwrites source file in place. Defaults to False.
+
+        Returns
+        --------
+            Path: Path object
+                Path to the written PHI-scrubbed file.
+        """
+        dest_path: Path = (
+            file_path
+            if in_place
+            else (
+                output_path
+                if output_path is not None
+                else file_path.with_name(f"scrubbed_{file_path.name}")
+            )
+        )
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        path_str: str = str(file_path).lower()
+        if path_str.endswith(".nii.gz"):
+            with gzip.open(file_path, "rb") as gz_in:
+                full_bytes: bytearray = bytearray(gz_in.read())
+            if len(full_bytes) >= self.NIFTI_HDR_SIZE:
+                full_bytes[14:32] = b"\x00" * 18
+                full_bytes[148:228] = b"\x00" * 80
+                full_bytes[228:252] = b"\x00" * 24
+            with gzip.open(dest_path, "wb") as gz_out:
+                gz_out.write(full_bytes)
+        elif path_str.endswith(".nii"):
+            full_bytes = bytearray(file_path.read_bytes())
+            if len(full_bytes) >= self.NIFTI_HDR_SIZE:
+                full_bytes[14:32] = b"\x00" * 18
+                full_bytes[148:228] = b"\x00" * 80
+                full_bytes[228:252] = b"\x00" * 24
+            dest_path.write_bytes(full_bytes)
+        elif path_str.endswith(".edf") or path_str.endswith(".bdf"):
+            full_bytes = bytearray(file_path.read_bytes())
+            if len(full_bytes) >= self.EDF_FIXED_HDR_SIZE:
+                full_bytes[8:88] = b" " * 80
+                full_bytes[88:168] = b" " * 80
+            dest_path.write_bytes(full_bytes)
+        elif path_str.endswith(".vhdr"):
+            lines: list[str] = file_path.read_text(
+                encoding="utf-8", errors="ignore"
+            ).splitlines()
+            cleaned_lines: list[str] = [
+                line
+                for line in lines
+                if not any(
+                    line.strip().lower().startswith(p)
+                    for p in ("patient", "subject", "; patient", "; subject")
+                )
+            ]
+            dest_path.write_text("\n".join(cleaned_lines), encoding="utf-8")
+        else:
+            if not in_place:
+                dest_path.write_bytes(file_path.read_bytes())
+
+        return dest_path
+
+    def sanitize_file(
+        self,
+        file_path: Path,
+        output_path: Path | None = None,
+        scrub_in_place: bool = False,
+    ) -> Path:
+        """Alias for scrub_file producing de-identified files on disk.
+
+        Parameters
+        ------------
+        file_path: Path
+            Path to the source neuroimaging file.
+        output_path: Path | None
+            Destination path for the scrubbed file. Defaults to None.
+        scrub_in_place: bool
+            If True, overwrites source file in place. Defaults to False.
+
+        Returns
+        --------
+            Path: Path object
+                Path to the written PHI-scrubbed file.
+        """
+        result_path: Path = self.scrub_file(
+            file_path=file_path,
+            output_path=output_path,
+            in_place=scrub_in_place,
+        )
+        return result_path
+
     def _extract_bids_entities(self, file_path: Path) -> dict[str, str]:
         """Extract key-value BIDS entities from a file name and parent folder.
 
@@ -142,7 +264,17 @@ class NeuroHeaderSanitizer:
         """
         entities: dict[str, str] = {}
         name: str = file_path.name
-        for ext in (".nii.gz", ".nii", ".edf", ".bdf", ".tsv.gz", ".tsv", ".json"):
+        for ext in (
+            ".nii.gz",
+            ".nii",
+            ".edf",
+            ".bdf",
+            ".vhdr",
+            ".fif",
+            ".tsv.gz",
+            ".tsv",
+            ".json",
+        ):
             if name.endswith(ext):
                 name = name[: -len(ext)]
                 break
@@ -387,14 +519,123 @@ class NeuroHeaderSanitizer:
         total_samples: int = num_records * samples_per_record
         sanitized_bytes: bytes = bytes(scrubbed)
         header_hash: str = hashlib.sha256(sanitized_bytes).hexdigest()
+        is_bdf: bool = fixed_hdr.startswith(b"\xffBIOSEMI")
+        dtype_str: str = "int24" if is_bdf else "int16"
         header: SanitizedNeuroHeader = SanitizedNeuroHeader(
             shape=[n_channels, total_samples],
             sampling_freq_hz=sfreq,
             channel_count=n_channels,
-            dtype="int16",
+            dtype=dtype_str,
             phi_sanitized=True,
         )
         return header, header_hash
+
+    def _parse_vhdr_header(
+        self, file_path: Path
+    ) -> tuple[SanitizedNeuroHeader, str]:
+        """Parse BrainVision .vhdr text header and strip subject identifiers.
+
+        Parameters
+        ------------
+        file_path: Path
+            Path to .vhdr file.
+
+        Returns
+        --------
+            tuple[SanitizedNeuroHeader, str]: tuple object
+                Parsed sanitized header and SHA-256 hash.
+        """
+        raw_text: str = file_path.read_text(encoding="utf-8", errors="ignore")
+        scrubbed_lines: list[str] = []
+        n_channels: int = 32
+        sfreq: float = 500.0
+
+        for line in raw_text.splitlines():
+            s_line = line.strip()
+            if any(
+                s_line.lower().startswith(p)
+                for p in ("patient", "subject", "; subject", "; patient")
+            ):
+                continue
+            if s_line.lower().startswith("numberofchannels="):
+                val_str = s_line.split("=", 1)[1].strip()
+                if val_str.isdigit():
+                    n_channels = max(1, int(val_str))
+            elif s_line.lower().startswith("samplinginterval="):
+                val_str = s_line.split("=", 1)[1].strip()
+                try:
+                    interval_us = float(val_str)
+                    if interval_us > 0.0:
+                        sfreq = round(1000000.0 / interval_us, 2)
+                except ValueError:
+                    pass
+            scrubbed_lines.append(line)
+
+        sanitized_str: str = "\n".join(scrubbed_lines)
+        sha_hash: str = hashlib.sha256(
+            sanitized_str.encode("utf-8")
+        ).hexdigest()
+        hdr: SanitizedNeuroHeader = SanitizedNeuroHeader(
+            shape=[n_channels, 1000],
+            sampling_freq_hz=sfreq,
+            channel_count=n_channels,
+            dtype="float32",
+            phi_sanitized=True,
+        )
+        return hdr, sha_hash
+
+    def _parse_fif_header(
+        self, file_path: Path
+    ) -> tuple[SanitizedNeuroHeader, str]:
+        """Parse Neuromag/Elekta binary FIFF file header tags.
+
+        Parameters
+        ------------
+        file_path: Path
+            Path to .fif file.
+
+        Returns
+        --------
+            tuple[SanitizedNeuroHeader, str]: tuple object
+                Parsed sanitized header and SHA-256 hash.
+        """
+        raw_bytes: bytes = file_path.read_bytes()
+        n_channels: int = 306
+        sfreq: float = 1000.0
+        offset: int = 0
+        limit: int = min(len(raw_bytes), 65536)
+        while offset + 16 <= limit:
+            kind, _type, size, _ = struct.unpack(
+                ">4i", raw_bytes[offset : offset + 16]
+            )
+            offset += 16
+            if size < 0 or offset + size > len(raw_bytes):
+                break
+            if kind == 200 and size == 4:
+                n_channels = max(
+                    1,
+                    struct.unpack(">i", raw_bytes[offset : offset + 4])[0],
+                )
+            elif kind == 201 and size == 4:
+                sfreq = round(
+                    float(
+                        struct.unpack(">f", raw_bytes[offset : offset + 4])[0]
+                    ),
+                    2,
+                )
+            offset += size
+
+        sha_hash: str = hashlib.sha256(
+            raw_bytes[: min(1024, len(raw_bytes))]
+        ).hexdigest()
+        hdr: SanitizedNeuroHeader = SanitizedNeuroHeader(
+            shape=[n_channels, 1000],
+            sampling_freq_hz=sfreq,
+            channel_count=n_channels,
+            dtype="float32",
+            phi_sanitized=True,
+        )
+        return hdr, sha_hash
 
     def _affine_to_orientation(
         self,

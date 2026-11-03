@@ -49,7 +49,6 @@ class DocsIndexer:
         "qunex": ["qunex"],
         "workbench": ["workbench", "wb_command", "connectome-workbench"],
         "dcm2niix": ["dcm2niix", "dcm2nii"],
-        "pyedface": ["pyedface", "pydeface"],
         "pydeface": ["pydeface", "pyedface"],
         "bctnet": ["bctnet", "bct", "brain-connectivity-toolbox"],
         "hoi": ["hoi", "higher-order-interactions"],
@@ -163,11 +162,16 @@ class DocsIndexer:
         details: list[dict[str, Any]] = []
 
         subdirs: list[Path] = sorted(
-            [p for p in self.docs_dir.iterdir() if p.is_dir()]
+            [
+                p
+                for p in self.docs_dir.iterdir()
+                if p.is_dir() and not p.is_symlink()
+            ]
         )
 
         for pkg_dir in subdirs:
-            pkg_name: str = pkg_dir.name.lower()
+            raw_name: str = pkg_dir.name.lower()
+            pkg_name: str = "pydeface" if raw_name == "pyedface" else raw_name
             cmd_file: Path = pkg_dir / "commands.md"
             fn_file: Path = pkg_dir / "functions.md"
             doc_file: Path = pkg_dir / "documentation.md"

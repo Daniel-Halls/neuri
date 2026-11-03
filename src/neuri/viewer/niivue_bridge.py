@@ -8,6 +8,7 @@ remote SSH directories, and proxies byte-range volume requests.
 import json
 import os
 import re
+import tempfile
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -36,6 +37,7 @@ class NiiVueHTTPServer(HTTPServer):
     """
 
     active_scene: NiiVueSceneSpec | None = None
+    latest_selection: dict[str, Any] | None = None
 
 
 class NiiVueBridgeHandler(BaseHTTPRequestHandler):
@@ -78,6 +80,8 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             self._serve_static_index()
         elif path == "/api/scene":
             self._serve_scene_spec()
+        elif path == "/api/scene/selection":
+            self._serve_selection()
         elif path == "/api/hosts":
             self._serve_hosts()
         elif path.startswith("/api/file"):
@@ -112,12 +116,82 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         if parsed_url.path == "/api/scene":
             self._handle_post_scene()
+        elif parsed_url.path == "/api/scene/selection":
+            self._handle_post_selection()
         elif parsed_url.path == "/api/open-dialog":
             self._handle_open_dialog()
         elif parsed_url.path == "/api/fs/open":
             self._handle_fs_open()
         else:
             self.send_error(404, "Not Found")
+
+    def _get_cors_origin(self) -> str:
+        """Determine permitted CORS origin matching localhost or 127.0.0.1.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Permitted Origin string.
+        """
+        origin_hdr: str | None = self.headers.get("Origin")
+        if origin_hdr and re.match(
+            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", origin_hdr
+        ):
+            return origin_hdr
+        return "http://127.0.0.1"
+
+    def is_path_permitted(self, file_path: Path) -> bool:
+        """Verify resolved path resides within configured allowed roots.
+
+        Parameters
+        ------------
+        file_path: Path
+            Resolved absolute path to verify.
+
+        Returns
+        --------
+            bool: boolean object
+                True if path is within an allowed root directory.
+        """
+        allowed: list[Path] = getattr(self.server, "allowed_roots", [])
+        if not allowed:
+            allowed = [
+                Path.cwd(),
+                Path(tempfile.gettempdir()),
+                Path.home() / ".neuri",
+            ]
+        try:
+            resolved_target: Path = file_path.resolve()
+            forbidden_roots = [
+                Path.home() / ".ssh",
+                Path.home() / ".aws",
+                Path.home() / ".gnupg",
+                Path("/etc"),
+            ]
+            for f_root in forbidden_roots:
+                try:
+                    res_f = f_root.resolve()
+                    if (
+                        resolved_target == res_f
+                        or res_f in resolved_target.parents
+                    ):
+                        return False
+                except Exception:
+                    pass
+            for root in allowed:
+                resolved_root: Path = root.resolve()
+                if (
+                    resolved_target == resolved_root
+                    or resolved_root in resolved_target.parents
+                ):
+                    return True
+        except Exception:
+            return False
+        return False
 
     def handle_options(self) -> None:
         """Handle CORS pre-flight requests from browser clients.
@@ -132,7 +206,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                 Sends CORS pre-flight response headers.
         """
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
@@ -170,6 +244,54 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"status":"ok"}')
         except Exception as err:
             self.send_error(400, f"Invalid scene specification: {err}")
+
+    def _handle_post_selection(self) -> None:
+        """Handle incoming POST request transmitting 3D coordinate feedback.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Stores selection state and sends JSON acknowledgement.
+        """
+        try:
+            content_len: int = int(self.headers.get("Content-Length", 0))
+            body: bytes = self.rfile.read(content_len)
+            payload: dict[str, Any] = json.loads(body.decode("utf-8"))
+            self.server.latest_selection = payload
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok","recorded":true}')
+        except Exception as err:
+            self.send_error(400, f"Invalid selection payload: {err}")
+
+    def _serve_selection(self) -> None:
+        """Return the most recently clicked 3D voxel coordinate selection.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Sends JSON response with latest coordinate and atlas label.
+        """
+        sel: dict[str, Any] | None = getattr(
+            self.server, "latest_selection", None
+        )
+        payload_bytes: bytes = json.dumps(sel or {}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload_bytes)))
+        self.end_headers()
+        self.wfile.write(payload_bytes)
 
     def _serve_hosts(self) -> None:
         """Serve JSON list of available local and remote SSH hosts.
@@ -209,6 +331,12 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             None: NoneType object
                 Sends JSON directory listing response.
         """
+        if host in ("localhost", "127.0.0.1") and dir_path:
+            target_dir: Path = Path(dir_path).resolve()
+            if not self.is_path_permitted(target_dir):
+                self.send_error(403, f"Access denied: {dir_path}")
+                return
+
         explorer: LocalFileExplorer = LocalFileExplorer()
         listing: dict[str, Any] = explorer.list_directory(
             dir_path=dir_path, host=host
@@ -278,6 +406,11 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
 
             if req_host in ("localhost", "127.0.0.1"):
                 target_path: Path = Path(target_path_str).resolve()
+                if not self.is_path_permitted(target_path):
+                    self.send_error(
+                        403, f"Access denied: {target_path_str}"
+                    )
+                    return
                 if not target_path.is_file():
                     self.send_error(404, f"File not found: {target_path_str}")
                     return
@@ -447,7 +580,11 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         if clean_path_str.startswith("file://"):
             clean_path_str = clean_path_str[7:]
 
-        local_file: Path = Path(clean_path_str)
+        local_file: Path = Path(clean_path_str).resolve()
+        if not self.is_path_permitted(local_file):
+            self.send_error(403, f"Access denied: {clean_path_str}")
+            return
+
         if not local_file.is_file():
             self.send_error(404, f"File not found: {uri}")
             return
@@ -462,24 +599,48 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         if local_file.name.lower().endswith(".gz"):
             mime_type = "application/gzip"
 
+        cors_origin: str = self._get_cors_origin()
         range_hdr: str | None = self.headers.get("Range")
         if range_hdr:
             match = re.match(r"^bytes=(\d*)-(\d*)$", range_hdr.strip())
             if not match:
                 self.send_response(416, "Range Not Satisfiable")
+                self.send_header("Access-Control-Allow-Origin", cors_origin)
                 self.send_header("Content-Range", f"bytes */{total_size}")
                 self.end_headers()
                 return
 
             s_str, e_str = match.groups()
-            start: int = int(s_str) if s_str else 0
-            end: int = (
-                min(int(e_str), total_size - 1) if e_str else total_size - 1
-            )
+            if not s_str and not e_str:
+                self.send_response(416, "Range Not Satisfiable")
+                self.send_header("Access-Control-Allow-Origin", cors_origin)
+                self.send_header("Content-Range", f"bytes */{total_size}")
+                self.end_headers()
+                return
+
+            if not s_str:
+                suffix_len: int = int(e_str)
+                start: int = max(0, total_size - suffix_len)
+                end: int = total_size - 1
+            else:
+                start = int(s_str)
+                end = (
+                    min(int(e_str), total_size - 1)
+                    if e_str
+                    else total_size - 1
+                )
+
+            if start >= total_size or start > end:
+                self.send_response(416, "Range Not Satisfiable")
+                self.send_header("Access-Control-Allow-Origin", cors_origin)
+                self.send_header("Content-Range", f"bytes */{total_size}")
+                self.end_headers()
+                return
+
             length: int = end - start + 1
 
             self.send_response(206, "Partial Content")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Origin", cors_origin)
             self.send_header(
                 "Access-Control-Expose-Headers",
                 "Content-Range, Content-Length, Accept-Ranges",
@@ -503,7 +664,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                     left -= len(chunk)
         else:
             self.send_response(200, "OK")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Origin", cors_origin)
             self.send_header(
                 "Access-Control-Expose-Headers",
                 "Content-Range, Content-Length, Accept-Ranges",
@@ -664,6 +825,55 @@ class NiiVueBridge:
                 True if bridge is active.
         """
         return self._is_running
+
+    @property
+    def server(self) -> NiiVueHTTPServer | None:
+        """Retrieve the active NiiVue HTTP server instance.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            NiiVueHTTPServer | None: server instance or None
+                Underlying HTTP server.
+        """
+        return self._server
+
+    @property
+    def latest_selection(self) -> dict[str, Any] | None:
+        """Return the most recently clicked 3D voxel coordinate selection.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            dict[str, Any] | None: selection dictionary or None
+                Latest coordinate feedback payload.
+        """
+        if self._server is not None:
+            return getattr(self._server, "latest_selection", None)
+        return None
+
+    @latest_selection.setter
+    def latest_selection(self, val: dict[str, Any] | None) -> None:
+        """Update the latest 3D voxel coordinate selection.
+
+        Parameters
+        ------------
+        val: dict[str, Any] | None
+            New coordinate selection payload or None to reset.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates internal selection state.
+        """
+        if self._server is not None:
+            self._server.latest_selection = val
 
     def get_url(self) -> str:
         """Retrieve the canonical browser URL for the active session.

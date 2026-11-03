@@ -4,6 +4,7 @@ Wraps the OpenCode CLI for headless streaming execution and interactive
 terminal escalation.
 """
 
+from pathlib import Path
 from typing import Any
 
 from neuri.adapters.base import BaseHarnessAdapter
@@ -96,6 +97,8 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             list[str]: list object
                 Argument list for opencode subprocess invocation.
         """
+        full_prompt: str = self.build_composite_prompt(envelope)
+
         cmd: list[str] = [
             self.executable_name,
             "run",
@@ -103,7 +106,12 @@ class OpenCodeAdapter(BaseHarnessAdapter):
         ]
         if envelope.model:
             cmd.extend(["--model", envelope.model])
-        cmd.append(envelope.task_instruction)
+
+        mcp_cfg: Path | None = self.write_runtime_mcp_config(envelope)
+        if mcp_cfg is not None:
+            cmd.extend(["--mcp-config", str(mcp_cfg)])
+
+        cmd.append(full_prompt)
         return cmd
 
     def build_interactive_command(
@@ -121,12 +129,18 @@ class OpenCodeAdapter(BaseHarnessAdapter):
             list[str]: list object
                 Argument list for interactive opencode execution.
         """
+        full_prompt: str = self.build_composite_prompt(envelope)
         cmd: list[str] = [
             self.executable_name,
         ]
         if envelope.model:
             cmd.extend(["--model", envelope.model])
-        cmd.append(envelope.task_instruction)
+
+        mcp_cfg: Path | None = self.write_runtime_mcp_config(envelope)
+        if mcp_cfg is not None:
+            cmd.extend(["--mcp-config", str(mcp_cfg)])
+
+        cmd.append(full_prompt)
         return cmd
 
     def parse_stream_line(self, raw_line: str) -> NormalizedStreamResult:

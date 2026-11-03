@@ -179,3 +179,45 @@ def test_sanitized_header_is_under_150_tokens() -> None:
     assert estimated_tokens < 150, (
         f"Header exceeds token budget: {estimated_tokens} tokens"
     )
+
+
+def test_sanitizer_scrub_file_on_disk(tmp_path: Path) -> None:
+    """Test on-disk header scrubbing for NIfTI and gzipped NIfTI files.
+
+    Parameters
+    ------------
+    tmp_path: Path
+        Pytest temporary directory fixture.
+
+    Returns
+    --------
+        None: NoneType object
+            Asserts free-text header fields are zeroed out on disk.
+    """
+    raw_data: bytes = create_synthetic_nifti_bytes(
+        dim_x=8,
+        dim_y=8,
+        dim_z=8,
+        phi_descrip="PatientName=ScrubMe;DOB=1970-01-01",
+    )
+    nii_file: Path = tmp_path / "test_scrub.nii"
+    nii_file.write_bytes(raw_data)
+
+    sanitizer: NeuroHeaderSanitizer = NeuroHeaderSanitizer()
+    scrubbed_path: Path = sanitizer.scrub_file(nii_file)
+
+    assert scrubbed_path.is_file()
+    scrubbed_bytes: bytes = scrubbed_path.read_bytes()
+    assert scrubbed_bytes[148:228] == b"\x00" * 80
+    assert b"PatientName=ScrubMe" not in scrubbed_bytes
+
+    # Test in-place scrubbing on gzipped file
+    gz_file: Path = tmp_path / "test_scrub.nii.gz"
+    with gzip.open(gz_file, "wb") as gz:
+        gz.write(raw_data)
+
+    sanitizer.sanitize_file(gz_file, scrub_in_place=True)
+    with gzip.open(gz_file, "rb") as gz:
+        decompressed: bytes = gz.read()
+    assert decompressed[148:228] == b"\x00" * 80
+    assert b"PatientName=ScrubMe" not in decompressed

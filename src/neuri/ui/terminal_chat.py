@@ -13,6 +13,7 @@ Textual from the active Neuri theme, either in the CSS below or inside
 import asyncio
 import contextlib
 import re
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1025,6 +1026,111 @@ class ComputeSidebar(VerticalScroll):
             self._content.update(Content.assemble(*parts).rstrip())
 
 
+class DAGInspectorDrawer(VerticalScroll):
+    """Drawer widget displaying active workflow nodes and live status badges.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        DAGInspectorDrawer: DAGInspectorDrawer instance
+            Constructed DAG inspector widget.
+    """
+
+    def __init__(self) -> None:
+        """Initialize DAG inspector drawer widget.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Initializes drawer state and header.
+        """
+        super().__init__(id="dag-inspector-drawer", classes="hidden")
+        self.border_title = "DAG Inspector"
+        self.border_subtitle = "F3"
+        self._content: Static = Static(
+            Content.assemble(("No active DAG planned.", "$muted")),
+            id="dag-inspector-content",
+        )
+
+    def compose(self) -> ComposeResult:
+        """Compose child widgets inside inspector drawer.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            ComposeResult: ComposeResult generator
+                Yields content static widget.
+        """
+        yield self._content
+
+    def update_nodes(self, nodes: list[dict[str, Any]]) -> None:
+        """Render active nodes with status badges, roles, and instructions.
+
+        Parameters
+        ------------
+        nodes: list[dict[str, Any]]
+            List of node metadata dictionaries.
+
+        Returns
+        --------
+            None: NoneType object
+                Updates Static widget content.
+        """
+        if not nodes:
+            self._content.update(
+                Content.assemble(("No active DAG planned.", "$muted"))
+            )
+            return
+
+        parts: list[str | Content | tuple[str, str]] = []
+        parts.append(("Active DAG Nodes\n", "bold $foreground"))
+        parts.append(("────────────────────────────\n", "$border"))
+
+        status_symbols: dict[str, tuple[str, str]] = {
+            "PENDING": ("○", "$muted"),
+            "RUNNING": ("⠋", "bold $primary"),
+            "COMPLETED": ("✓", "bold $success"),
+            "WAITING_OPERATOR": ("!", "bold $warning"),
+            "FAILED": ("✗", "bold $error"),
+        }
+
+        for n in nodes:
+            node_id: str = str(n.get("node_id", "node"))
+            role: str = str(n.get("agent_role", "specialist"))
+            state: str = str(n.get("state", "PENDING"))
+            attempt: int = int(n.get("attempt", 0))
+            harness: str = str(n.get("harness_id", "agy"))
+
+            sym, style = status_symbols.get(state, ("○", "$muted"))
+            parts.append((f"{sym} ", style))
+            parts.append((f"{node_id}\n", "bold $foreground"))
+            parts.append((f"  Role: {role}\n", "$muted"))
+            parts.append((f"  Harness: {harness}  State: {state}\n", "$muted"))
+            if attempt > 0:
+                parts.append((f"  Attempt: {attempt}\n", "$warning"))
+
+            instr: str = str(n.get("instruction", "")).strip()
+            if instr:
+                short_instr: str = (
+                    instr[:50] + "..." if len(instr) > 50 else instr
+                )
+                parts.append((f"  > {short_instr}\n", "$muted"))
+            parts.append(("\n", "$muted"))
+
+        with contextlib.suppress(Exception):
+            self._content.update(Content.assemble(*parts))
+
+
 class MachineSelectorBar(Static):
     """Bar displaying active target machine and selector pills for shell mode.
 
@@ -1760,6 +1866,24 @@ class NeuriChatApp(App[None]):
     #compute-sidebar-content {
         color: $foreground;
     }
+    #dag-inspector-drawer {
+        width: 38;
+        height: 100%;
+        background: $background;
+        border: round $border;
+        border-title-color: $foreground;
+        border-title-style: bold;
+        border-title-align: left;
+        border-subtitle-color: $muted;
+        padding: 0 1;
+        scrollbar-size-vertical: 1;
+    }
+    #dag-inspector-drawer.hidden {
+        display: none;
+    }
+    #dag-inspector-content {
+        color: $foreground;
+    }
 
     /* ---- Input stack ----------------------------------------------- */
     #input-container {
@@ -1892,6 +2016,7 @@ class NeuriChatApp(App[None]):
         Binding("ctrl+s", "toggle_shell_mode", "Shell Mode", show=True),
         Binding("f2", "toggle_sidebar", "Machines", show=True),
         Binding("ctrl+b", "toggle_sidebar", "Machines", show=False),
+        Binding("f3", "toggle_dag_inspector", "DAG Inspector", show=True),
     ]
 
     def __init__(
@@ -1944,6 +2069,7 @@ class NeuriChatApp(App[None]):
             model_id=self._engine.model,
         )
         self._compute_sidebar: ComputeSidebar = ComputeSidebar()
+        self._dag_inspector: DAGInspectorDrawer = DAGInspectorDrawer()
         self._is_shell_mode: bool = False
         self._available_machines: list[str] = ["localhost"]
         self._selected_machine_index: int = 0
@@ -2132,6 +2258,7 @@ class NeuriChatApp(App[None]):
             chat_scroll.border_title = ">> Neuri"
             yield chat_scroll
             yield self._compute_sidebar
+            yield self._dag_inspector
 
         with Container(id="input-container"):
             yield self._telemetry_bar
@@ -2309,6 +2436,58 @@ class NeuriChatApp(App[None]):
                 Toggles the hidden CSS class on the sidebar widget.
         """
         self._compute_sidebar.toggle_class("hidden")
+
+    def action_toggle_dag_inspector(self) -> None:
+        """Toggle visibility of the interactive DAG Inspector drawer.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Toggles the hidden CSS class on the inspector drawer.
+        """
+        self._dag_inspector.toggle_class("hidden")
+        self._refresh_dag_inspector()
+
+    def _refresh_dag_inspector(self) -> None:
+        """Query Blackboard for active workflow nodes and update drawer content.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Updates DAG inspector drawer nodes.
+        """
+        with contextlib.suppress(Exception):
+            bb = self._engine.orchestrator.blackboard
+            wf_id = getattr(
+                self._engine.slash_router,
+                "_last_planned_workflow_id",
+                None,
+            )
+            nodes = (
+                bb.get_nodes_by_workflow(wf_id) if wf_id else bb.list_nodes()
+            )
+            data: list[dict[str, Any]] = [
+                {
+                    "node_id": n.node_id,
+                    "agent_role": n.agent_role,
+                    "state": n.state.value,
+                    "attempt": n.attempt,
+                    "harness_id": n.harness_id,
+                    "instruction": (
+                        n.envelope.task_instruction if n.envelope else ""
+                    ),
+                }
+                for n in nodes
+            ]
+            self._dag_inspector.update_nodes(data)
 
     @property
     def is_shell_mode(self) -> bool:
@@ -2688,6 +2867,26 @@ class NeuriChatApp(App[None]):
             None: NoneType object
                 Updates telemetry footer and triggers UI actions.
         """
+        if threading.current_thread() != threading.main_thread():
+            with contextlib.suppress(Exception):
+                self.call_from_thread(self._handle_session_event_sync, ev)
+            return
+
+        self._handle_session_event_sync(ev)
+
+    def _handle_session_event_sync(self, ev: SessionEvent) -> None:
+        """Synchronously process session event on main Textual thread.
+
+        Parameters
+        ------------
+        ev: SessionEvent
+            Session event to handle.
+
+        Returns
+        --------
+            None: NoneType object
+                Applies DOM and widget mutations.
+        """
         if ev.event_type == SessionEventType.STATUS_UPDATE:
             cmd_name: Any = ev.payload.get("command")
             if cmd_name in ("/harness", "/model", "/models"):
@@ -2695,6 +2894,11 @@ class NeuriChatApp(App[None]):
             action: Any = ev.payload.get("action")
             if action == "clear_chat":
                 self.action_clear_screen()
+            elif action == "new_conversation":
+                self.action_clear_screen()
+                self._telemetry_bar.tokens_count = 0
+                self._telemetry_bar.cost_usd = 0.0
+                self._telemetry_bar.status_text = "New conversation started"
             elif action == "exit_app":
                 self.exit()
             elif action == "change_theme":
@@ -2754,8 +2958,9 @@ class NeuriChatApp(App[None]):
         elif ev.event_type == SessionEventType.WORKFLOW_COMPLETED:
             toks: int = int(ev.payload.get("total_tokens", 0))
             cost: float = float(ev.payload.get("cost_usd", 0.0))
-            self._telemetry_bar.tokens_count += toks
-            self._telemetry_bar.cost_usd += cost
+            if self._telemetry_bar.tokens_count == 0 and toks > 0:
+                self._telemetry_bar.tokens_count = toks
+                self._telemetry_bar.cost_usd = cost
             self._telemetry_bar.status_text = "Ready"
 
     def action_clear_screen(self) -> None:
@@ -2779,6 +2984,7 @@ class NeuriChatApp(App[None]):
 
 __all__: list[str] = [
     "ComputeSidebar",
+    "DAGInspectorDrawer",
     "LiveFeedbackCard",
     "MachineSelectorBar",
     "MessageCard",

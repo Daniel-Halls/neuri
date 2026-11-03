@@ -4,6 +4,7 @@ Discovers remote Apptainer/Singularity installations, Slurm partitions, and
 uv/conda runtimes over SSH, syncing neuri_worker into ~/.neuri_worker/.
 """
 
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -131,7 +132,45 @@ class RemoteHostBootstrapper:
         mkdir_cmd: str = "mkdir -p ~/.neuri_worker/neuri_worker"
         await self._ssh_pool.run_command(host, mkdir_cmd)
 
-        # 3. Save to ~/.neuri/hosts.toml
+        # 3. Deploy neuri_worker source files to remote host
+        worker_src_dir: Path | None = None
+        try:
+            import neuri_worker
+
+            if neuri_worker.__file__:
+                worker_src_dir = Path(neuri_worker.__file__).parent
+        except Exception:
+            pass
+
+        if worker_src_dir is None:
+            candidate: Path = (
+                Path(__file__).resolve().parent.parent.parent / "neuri_worker"
+            )
+            if candidate.is_dir():
+                worker_src_dir = candidate
+
+        if worker_src_dir and worker_src_dir.is_dir():
+            worker_files: list[str] = [
+                "__init__.py",
+                "sanitizer.py",
+                "headless_qa.py",
+                "range_server.py",
+                "inspector.py",
+                "mcp_server.py",
+            ]
+            for w_name in worker_files:
+                local_f: Path = worker_src_dir / w_name
+                if local_f.is_file():
+                    b64_str: str = base64.b64encode(
+                        local_f.read_bytes()
+                    ).decode("ascii")
+                    deploy_cmd: str = (
+                        f"echo '{b64_str}' | base64 -d > "
+                        f"~/.neuri_worker/neuri_worker/{w_name}"
+                    )
+                    await self._ssh_pool.run_command(host, deploy_cmd)
+
+        # 4. Save to ~/.neuri/hosts.toml
         self.save_host_record(host, caps)
         return caps
 

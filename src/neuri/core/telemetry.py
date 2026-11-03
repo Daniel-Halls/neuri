@@ -2506,7 +2506,9 @@ class TelemetryTap:
                 self._cost_usd += inc_cost
 
         self._cost_usd = round(self._cost_usd, 6)
-        total: int = self._input_tokens + self._output_tokens
+        total: int = (
+            self._input_tokens + self._output_tokens + self._reasoning_tokens
+        )
         self.check_breakers(self.node_id, total, self._cost_usd)
 
     def _trigger_breaker(
@@ -2655,7 +2657,7 @@ class TelemetryTap:
         return metrics
 
     def get_accumulated_tokens(self) -> int:
-        """Return total tokens consumed (input + output).
+        """Return total tokens consumed (input + output + reasoning).
 
         Parameters
         ------------
@@ -2666,7 +2668,9 @@ class TelemetryTap:
             int: integer object
                 Total token count.
         """
-        total: int = self._input_tokens + self._output_tokens
+        total: int = (
+            self._input_tokens + self._output_tokens + self._reasoning_tokens
+        )
         return total
 
     def get_accumulated_cost(self) -> float:

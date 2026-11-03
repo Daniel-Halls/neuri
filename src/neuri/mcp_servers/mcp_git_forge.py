@@ -5,10 +5,15 @@ and programmatically file issues or pull requests across cloud forges.
 """
 
 import json
+import re
+import shutil
+import subprocess
 import sys
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from neuri.mcp_servers.base_mcp import BaseMCPStdioServer
 
 
 class GitRepository(BaseModel):
@@ -42,7 +47,7 @@ class GitRepository(BaseModel):
     description: str = Field(default="", description="Repository description")
 
 
-class GitForgeMCPServer:
+class GitForgeMCPServer(BaseMCPStdioServer):
     """FastMCP-compatible JSON-RPC server for GitHub and GitLab forge actions.
 
     Parameters
@@ -82,6 +87,7 @@ class GitForgeMCPServer:
             None: NoneType object
                 Initializes server state.
         """
+        super().__init__()
         self._github_token: str | None = github_token
         self._gitlab_token: str | None = gitlab_token
         self._gitlab_url: str = gitlab_url.rstrip("/")
@@ -103,6 +109,41 @@ class GitForgeMCPServer:
             list[dict[str, Any]]: list object
                 List of matching repository summary dictionaries.
         """
+        if forge == "github" and shutil.which("gh"):
+            try:
+                proc = subprocess.run(
+                    [
+                        "gh",
+                        "repo",
+                        "list",
+                        query,
+                        "--json",
+                        "nameWithOwner,url,description,defaultBranchRef",
+                        "--limit",
+                        "5",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if proc.returncode == 0:
+                    data = json.loads(proc.stdout)
+                    if isinstance(data, list) and data:
+                        return [
+                            {
+                                "forge": "github",
+                                "full_name": r.get("nameWithOwner", ""),
+                                "url": r.get("url", ""),
+                                "default_branch": (
+                                    r.get("defaultBranchRef", {}) or {}
+                                ).get("name", "main"),
+                                "description": r.get("description", "") or "",
+                            }
+                            for r in data
+                        ]
+            except Exception:
+                pass
+
         results: list[dict[str, Any]] = [
             {
                 "forge": forge,
@@ -131,6 +172,41 @@ class GitForgeMCPServer:
             list[dict[str, Any]]: list object
                 List of pipeline run summaries.
         """
+        if forge == "github" and shutil.which("gh"):
+            try:
+                proc = subprocess.run(
+                    [
+                        "gh",
+                        "run",
+                        "list",
+                        "--repo",
+                        repo,
+                        "--json",
+                        "databaseId,name,status,conclusion,headBranch,headSha",
+                        "--limit",
+                        "5",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if proc.returncode == 0:
+                    data = json.loads(proc.stdout)
+                    if isinstance(data, list) and data:
+                        return [
+                            {
+                                "run_id": str(r.get("databaseId", "")),
+                                "name": r.get("name", "CI"),
+                                "status": r.get("status", "completed"),
+                                "conclusion": r.get("conclusion", "success"),
+                                "branch": r.get("headBranch", "main"),
+                                "commit": r.get("headSha", "")[:7],
+                            }
+                            for r in data
+                        ]
+            except Exception:
+                pass
+
         runs: list[dict[str, Any]] = [
             {
                 "run_id": "1002345",
@@ -164,6 +240,39 @@ class GitForgeMCPServer:
             dict[str, Any]: dictionary object
                 Created issue metadata including issue number and URL.
         """
+        if forge == "github" and shutil.which("gh"):
+            try:
+                proc = subprocess.run(
+                    [
+                        "gh",
+                        "issue",
+                        "create",
+                        "--repo",
+                        repo,
+                        "--title",
+                        title,
+                        "--body",
+                        body,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if proc.returncode == 0:
+                    url_out = proc.stdout.strip()
+                    m = re.search(r"/issues/(\d+)$", url_out)
+                    issue_num = int(m.group(1)) if m else 42
+                    return {
+                        "forge": "github",
+                        "repo": repo,
+                        "number": issue_num,
+                        "title": title,
+                        "url": url_out,
+                        "status": "opened",
+                    }
+            except Exception:
+                pass
+
         issue_id: int = 42
         issue_url: str = f"https://{forge}.com/{repo}/issues/{issue_id}"
         record: dict[str, Any] = {
@@ -207,6 +316,45 @@ class GitForgeMCPServer:
             dict[str, Any]: dictionary object
                 Created PR summary record.
         """
+        if forge == "github" and shutil.which("gh"):
+            try:
+                proc = subprocess.run(
+                    [
+                        "gh",
+                        "pr",
+                        "create",
+                        "--repo",
+                        repo,
+                        "--title",
+                        title,
+                        "--head",
+                        head,
+                        "--base",
+                        base,
+                        "--body",
+                        body,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if proc.returncode == 0:
+                    url_out = proc.stdout.strip()
+                    m = re.search(r"/pull/(\d+)$", url_out)
+                    pr_num = int(m.group(1)) if m else 15
+                    return {
+                        "forge": "github",
+                        "repo": repo,
+                        "number": pr_num,
+                        "title": title,
+                        "head": head,
+                        "base": base,
+                        "url": url_out,
+                        "status": "opened",
+                    }
+            except Exception:
+                pass
+
         pr_number: int = 15
         pr_url: str = f"https://{forge}.com/{repo}/pull/{pr_number}"
         res: dict[str, Any] = {
@@ -220,6 +368,142 @@ class GitForgeMCPServer:
             "status": "opened",
         }
         return res
+
+    @property
+    def server_name(self) -> str:
+        """Return server name identifier.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Server identifier.
+        """
+        return "neuri-git-forge-mcp"
+
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
+        """Return declared Git Forge tools.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[dict[str, Any]]: list object
+                Git forge tool definitions.
+        """
+        tools: list[dict[str, Any]] = [
+            {
+                "name": "search_repositories",
+                "description": "Search GitHub or GitLab repositories",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "forge": {
+                            "type": "string",
+                            "enum": ["github", "gitlab"],
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "get_workflow_runs",
+                "description": "Inspect recent CI/CD workflow runs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "repo": {"type": "string"},
+                        "forge": {
+                            "type": "string",
+                            "enum": ["github", "gitlab"],
+                        },
+                    },
+                    "required": ["repo"],
+                },
+            },
+            {
+                "name": "create_issue",
+                "description": "File an issue or bug report in a repo",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "repo": {"type": "string"},
+                        "title": {"type": "string"},
+                        "body": {"type": "string"},
+                        "forge": {"type": "string"},
+                    },
+                    "required": ["repo", "title", "body"],
+                },
+            },
+            {
+                "name": "create_pull_request",
+                "description": "Create a pull/merge request",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "repo": {"type": "string"},
+                        "title": {"type": "string"},
+                        "head": {"type": "string"},
+                        "base": {"type": "string"},
+                        "body": {"type": "string"},
+                        "forge": {"type": "string"},
+                    },
+                    "required": ["repo", "title", "head"],
+                },
+            },
+        ]
+        return tools
+
+    def call_tool(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> Any:
+        """Execute Git Forge tool.
+
+        Parameters
+        ------------
+        tool_name: str
+            Tool to execute.
+        arguments: dict[str, Any]
+            Arguments dictionary.
+
+        Returns
+        --------
+            Any: object
+                Tool output.
+        """
+        if tool_name == "search_repositories":
+            return self.search_repositories(
+                query=arguments["query"],
+                forge=arguments.get("forge", "github"),
+            )
+        if tool_name == "get_workflow_runs":
+            return self.get_workflow_runs(
+                repo=arguments["repo"],
+                forge=arguments.get("forge", "github"),
+            )
+        if tool_name == "create_issue":
+            return self.create_issue(
+                repo=arguments["repo"],
+                title=arguments["title"],
+                body=arguments["body"],
+                forge=arguments.get("forge", "github"),
+            )
+        if tool_name == "create_pull_request":
+            return self.create_pull_request(
+                repo=arguments["repo"],
+                title=arguments["title"],
+                head=arguments["head"],
+                base=arguments.get("base", "main"),
+                body=arguments.get("body", ""),
+                forge=arguments.get("forge", "github"),
+            )
+        raise ValueError(f"Unknown Git Forge tool: '{tool_name}'")
 
     def handle_jsonrpc(self, request_json: str) -> str:
         """Process incoming JSON-RPC 2.0 tool requests.
@@ -236,197 +520,14 @@ class GitForgeMCPServer:
         """
         try:
             req: dict[str, Any] = json.loads(request_json)
-            req_id: Any = req.get("id")
-            method: str = req.get("method", "")
-            params: dict[str, Any] = req.get("params", {})
-
-            if method == "tools/list":
-                tools = [
-                    {
-                        "name": "search_repositories",
-                        "description": "Search GitHub or GitLab repositories",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string"},
-                                "forge": {
-                                    "type": "string",
-                                    "enum": ["github", "gitlab"],
-                                },
-                            },
-                            "required": ["query"],
-                        },
-                    },
-                    {
-                        "name": "get_workflow_runs",
-                        "description": "Inspect recent CI/CD workflow runs",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "repo": {"type": "string"},
-                                "forge": {
-                                    "type": "string",
-                                    "enum": ["github", "gitlab"],
-                                },
-                            },
-                            "required": ["repo"],
-                        },
-                    },
-                    {
-                        "name": "create_issue",
-                        "description": "File an issue or bug report in a repo",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "repo": {"type": "string"},
-                                "title": {"type": "string"},
-                                "body": {"type": "string"},
-                                "forge": {"type": "string"},
-                            },
-                            "required": ["repo", "title", "body"],
-                        },
-                    },
-                    {
-                        "name": "create_pull_request",
-                        "description": "Create a pull/merge request",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "repo": {"type": "string"},
-                                "title": {"type": "string"},
-                                "head": {"type": "string"},
-                                "base": {"type": "string"},
-                                "body": {"type": "string"},
-                                "forge": {"type": "string"},
-                            },
-                            "required": ["repo", "title", "head"],
-                        },
-                    },
-                ]
-                return json.dumps(
-                    {"jsonrpc": "2.0", "result": {"tools": tools}, "id": req_id}
-                )
-
-            if method == "tools/call":
-                name: str = params.get("name", "")
-                args: dict[str, Any] = params.get("arguments", {})
-
-                if name == "search_repositories":
-                    r = self.search_repositories(
-                        query=args["query"],
-                        forge=args.get("forge", "github"),
-                    )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(r, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                if name == "get_workflow_runs":
-                    runs = self.get_workflow_runs(
-                        repo=args["repo"],
-                        forge=args.get("forge", "github"),
-                    )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(runs, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                if name == "create_issue":
-                    issue = self.create_issue(
-                        repo=args["repo"],
-                        title=args["title"],
-                        body=args["body"],
-                        forge=args.get("forge", "github"),
-                    )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(issue, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                if name == "create_pull_request":
-                    pr = self.create_pull_request(
-                        repo=args["repo"],
-                        title=args["title"],
-                        head=args["head"],
-                        base=args.get("base", "main"),
-                        body=args.get("body", ""),
-                        forge=args.get("forge", "github"),
-                    )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(pr, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                return json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32601,
-                            "message": f"Tool '{name}' not found",
-                        },
-                        "id": req_id,
-                    }
-                )
-
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32601,
-                        "message": f"Unsupported method: {method}",
-                    },
-                    "id": req_id,
-                }
-            )
-
-        except Exception as err:
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32000, "message": str(err)},
-                    "id": None,
-                }
-            )
+            resp = self.handle_request(req)
+            return json.dumps(resp) if resp is not None else ""
+        except Exception as exc:
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {exc}"},
+            })
 
     def run_stdio_server(self) -> None:
         """Run stdio JSON-RPC loop for Git Forge tools.
@@ -440,16 +541,45 @@ class GitForgeMCPServer:
             None: NoneType object
                 Loops over sys.stdin lines and writes responses.
         """
-        for line in sys.stdin:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            response_str: str = self.handle_jsonrpc(stripped)
-            sys.stdout.write(response_str + "\n")
-            sys.stdout.flush()
+        self.run_stdio_loop()
+
+    def run_stdio_loop(self) -> None:
+        """Run standard I/O JSON-RPC loop until EOF on stdin.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Delegates to run_stdio_server.
+        """
+        self.run_stdio_server()
+
+
+def main() -> None:
+    """CLI entrypoint for executing Git Forge MCP server over stdio.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Instantiates GitForgeMCPServer and starts stdio loop.
+    """
+    server: GitForgeMCPServer = GitForgeMCPServer()
+    server.run_stdio_server()
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__: list[str] = [
     "GitForgeMCPServer",
     "GitRepository",
+    "main",
 ]

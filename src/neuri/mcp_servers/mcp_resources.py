@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from neuri.mcp_servers.base_mcp import BaseMCPStdioServer
+
 
 class TemplateSpaceInfo(BaseModel):
     """Metadata describing a stereotaxic reference template space.
@@ -71,7 +73,7 @@ class AtlasInfo(BaseModel):
     networks: list[str] = Field(default_factory=list, description="Network schemes")
 
 
-class NeuroResourceRegistry:
+class NeuroResourceRegistry(BaseMCPStdioServer):
     """Local SQLite registry and MCP server for standard neuroimaging assets.
 
     Parameters
@@ -98,6 +100,7 @@ class NeuroResourceRegistry:
             None: NoneType object
                 Initializes database schema and seed records.
         """
+        super().__init__()
         self._db_path: Path = (
             db_path
             if db_path is not None
@@ -369,6 +372,87 @@ class NeuroResourceRegistry:
             "order_compliant": order_valid,
         }
 
+    @property
+    def server_name(self) -> str:
+        """Return server name identifier.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Server identifier.
+        """
+        return "neuri-resources-mcp"
+
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
+        """Return declared Resource tools.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[dict[str, Any]]: list object
+                Resource tool definitions.
+        """
+        tools: list[dict[str, Any]] = [
+            {
+                "name": "list_templates",
+                "description": "List stereotaxic spaces",
+            },
+            {
+                "name": "list_atlases",
+                "description": "List parcellation atlases",
+            },
+            {
+                "name": "list_containers",
+                "description": "List verified Apptainer images",
+            },
+            {
+                "name": "validate_bids_entities",
+                "description": (
+                    "Validate BIDS filename entities and ordering"
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"filename": {"type": "string"}},
+                    "required": ["filename"],
+                },
+            },
+        ]
+        return tools
+
+    def call_tool(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> Any:
+        """Execute Resource tool.
+
+        Parameters
+        ------------
+        tool_name: str
+            Tool to execute.
+        arguments: dict[str, Any]
+            Arguments dictionary.
+
+        Returns
+        --------
+            Any: object
+                Tool output.
+        """
+        if tool_name == "list_templates":
+            return self.list_templates()
+        if tool_name == "list_atlases":
+            return self.list_atlases()
+        if tool_name == "list_containers":
+            return self.list_containers()
+        if tool_name == "validate_bids_entities":
+            return self.validate_bids_entities(arguments["filename"])
+        raise ValueError(f"Unknown Resource tool: '{tool_name}'")
+
     def handle_jsonrpc(self, request_json: str) -> str:
         """Handle incoming JSON-RPC 2.0 tool requests.
 
@@ -384,143 +468,14 @@ class NeuroResourceRegistry:
         """
         try:
             req: dict[str, Any] = json.loads(request_json)
-            req_id: Any = req.get("id")
-            method: str = req.get("method", "")
-            params: dict[str, Any] = req.get("params", {})
-
-            if method == "tools/list":
-                tools = [
-                    {
-                        "name": "list_templates",
-                        "description": "List stereotaxic spaces",
-                    },
-                    {
-                        "name": "list_atlases",
-                        "description": "List parcellation atlases",
-                    },
-                    {
-                        "name": "list_containers",
-                        "description": "List verified Apptainer images",
-                    },
-                    {
-                        "name": "validate_bids_entities",
-                        "description": (
-                            "Validate BIDS filename entities and ordering"
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {"filename": {"type": "string"}},
-                            "required": ["filename"],
-                        },
-                    },
-                ]
-                return json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "result": {"tools": tools},
-                        "id": req_id,
-                    }
-                )
-
-            if method == "tools/call":
-                name: str = params.get("name", "")
-                args: dict[str, Any] = params.get("arguments", {})
-
-                if name == "list_templates":
-                    res = self.list_templates()
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-                if name == "list_atlases":
-                    res_a = self.list_atlases()
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res_a, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-                if name == "list_containers":
-                    res_c = self.list_containers()
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res_c, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-                if name == "validate_bids_entities":
-                    res_v = self.validate_bids_entities(args["filename"])
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res_v, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                return json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32601,
-                            "message": f"Tool '{name}' not found",
-                        },
-                        "id": req_id,
-                    }
-                )
-
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32601,
-                        "message": f"Unsupported method: {method}",
-                    },
-                    "id": req_id,
-                }
-            )
-
-        except Exception as err:
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32000, "message": str(err)},
-                    "id": None,
-                }
-            )
+            resp = self.handle_request(req)
+            return json.dumps(resp) if resp is not None else ""
+        except Exception as exc:
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {exc}"},
+            })
 
     def run_stdio_server(self) -> None:
         """Run stdio JSON-RPC loop for resource tools.
@@ -534,17 +489,46 @@ class NeuroResourceRegistry:
             None: NoneType object
                 Loops over sys.stdin lines and writes responses.
         """
-        for line in sys.stdin:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            response_str: str = self.handle_jsonrpc(stripped)
-            sys.stdout.write(response_str + "\n")
-            sys.stdout.flush()
+        self.run_stdio_loop()
+
+    def run_stdio_loop(self) -> None:
+        """Run standard I/O JSON-RPC loop until EOF on stdin.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Delegates to run_stdio_server.
+        """
+        self.run_stdio_server()
+
+
+def main() -> None:
+    """CLI entrypoint for executing Resource MCP server over stdio.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Instantiates NeuroResourceRegistry and starts stdio loop.
+    """
+    server: NeuroResourceRegistry = NeuroResourceRegistry()
+    server.run_stdio_server()
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__: list[str] = [
     "AtlasInfo",
     "NeuroResourceRegistry",
     "TemplateSpaceInfo",
+    "main",
 ]

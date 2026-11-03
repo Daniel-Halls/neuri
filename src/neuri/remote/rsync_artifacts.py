@@ -6,6 +6,7 @@ while strictly preventing raw multi-gigabyte binary datasets from crossing netwo
 
 import asyncio
 from pathlib import Path
+import shlex
 
 from neuri.remote.ssh_pool import SSHControlMasterPool
 
@@ -69,16 +70,37 @@ class ArtifactSyncManager:
                 True if transfer succeeded, False otherwise.
         """
         local_path.parent.mkdir(parents=True, exist_ok=True)
+        quoted_remote: str = shlex.quote(remote_path)
+
+        # Proactive size check to avoid transferring oversized files
+        stat_cmd: str = (
+            f"stat -c %s {quoted_remote} 2>/dev/null || "
+            f"stat -f %z {quoted_remote} 2>/dev/null"
+        )
+        stat_code, stat_out, _ = await self._ssh_pool.run_command(
+            host, stat_cmd, timeout_seconds=min(5.0, timeout_seconds)
+        )
+        if stat_code == 0 and stat_out.strip():
+            try:
+                remote_size: int = int(stat_out.strip().split()[-1])
+                if remote_size > self.MAX_FILE_SIZE_BYTES:
+                    return False
+            except (ValueError, IndexError):
+                pass
+
         # Stream file contents over SSH stdout to avoid separate scp handshake
-        cat_cmd: str = f"cat '{remote_path}'"
-        code, stdout_str, _ = await self._ssh_pool.run_command(
+        cat_cmd: str = f"cat {quoted_remote}"
+        code, stdout_bytes, _ = await self._ssh_pool.run_command_bytes(
             host, cat_cmd, timeout_seconds=timeout_seconds
         )
 
-        if code != 0 or not stdout_str:
+        if code != 0:
             return False
 
-        local_path.write_text(stdout_str, encoding="utf-8")
+        if len(stdout_bytes) > self.MAX_FILE_SIZE_BYTES:
+            return False
+
+        local_path.write_bytes(stdout_bytes)
         return True
 
     async def pull_qa_snapshots(
@@ -107,8 +129,9 @@ class ArtifactSyncManager:
                 List of locally written QA image paths.
         """
         local_target_dir.mkdir(parents=True, exist_ok=True)
+        quoted_dir: str = shlex.quote(remote_dir)
         find_cmd: str = (
-            f"find '{remote_dir}' -maxdepth 2 \\( -name '*.png' -o -name '*.svg' \\) "
+            f"find {quoted_dir} -maxdepth 2 \\( -name '*.png' -o -name '*.svg' \\) "
             "-type f 2>/dev/null || true"
         )
         code, stdout_str, _ = await self._ssh_pool.run_command(

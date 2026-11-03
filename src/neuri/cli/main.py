@@ -58,6 +58,10 @@ class NeuriCLI:
             name="install",
             help="Install base master prompt, skills, MCP, and rules into ~/.neuri.",
         )(self.install)
+        self.cli_app.command(
+            name="cmd",
+            help="Execute a slash command or prompt headlessly.",
+        )(self.cmd)
 
     def main(
         self,
@@ -364,6 +368,70 @@ class NeuriCLI:
         if new_convo:
             app_instance.engine.start_new_conversation()
         app_instance.run()
+
+    def cmd(
+        self,
+        command_str: Annotated[
+            str,
+            typer.Argument(
+                help="Slash command or prompt to execute headlessly."
+            ),
+        ],
+        workspace: Annotated[
+            Path | None,
+            typer.Option(
+                "--workspace",
+                "-w",
+                help="Custom workspace directory path.",
+            ),
+        ] = None,
+        model: Annotated[
+            str | None,
+            typer.Option(
+                "--model",
+                "-m",
+                help="Override active AI model across connected harnesses.",
+            ),
+        ] = None,
+        harness: Annotated[
+            str | None,
+            typer.Option(
+                "--harness",
+                "-H",
+                help="Active AI harness override across all roles.",
+            ),
+        ] = None,
+    ) -> None:
+        """Execute a slash command or prompt headlessly using NeuriSessionEngine.
+
+        Parameters
+        ------------
+        command_str: str
+            Slash command or prompt to run.
+        workspace: Path | None
+            Workspace directory path. Defaults to None.
+        model: str | None
+            Model override string. Defaults to None.
+        harness: str | None
+            Harness override string. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Dispatches command and prints formatted results.
+        """
+        installer: NeuriInstaller = NeuriInstaller()
+        installer.ensure_installed(force=False)
+        target_workspace: Path = (
+            workspace if workspace is not None else Path.cwd()
+        )
+        self._run_headless(
+            prompt=command_str,
+            workspace_dir=target_workspace,
+            model=model,
+            harness=harness,
+            new_convo=False,
+        )
 
     def install(
         self,

@@ -6,11 +6,15 @@ remote compute spokes.
 """
 
 import json
+import re
+import shlex
 import sys
 from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
+from neuri.mcp_servers.base_mcp import BaseMCPStdioServer
 
 
 class OpenNeuroDataset(BaseModel):
@@ -47,7 +51,7 @@ class OpenNeuroDataset(BaseModel):
     s3_url: str = Field(..., description="S3 public endpoint")
 
 
-class OpenNeuroMCPServer:
+class OpenNeuroMCPServer(BaseMCPStdioServer):
     """FastMCP-compatible JSON-RPC server for OpenNeuro search and staging.
 
     Parameters
@@ -76,6 +80,7 @@ class OpenNeuroMCPServer:
             None: NoneType object
                 Initializes server state.
         """
+        super().__init__()
         self._endpoint: str = endpoint_url
         self._mock_registry: dict[str, OpenNeuroDataset] = {
             "ds000228": OpenNeuroDataset(
@@ -164,6 +169,8 @@ class OpenNeuroMCPServer:
                 List of dataset metadata dictionaries.
         """
         results: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
         for ds in self._mock_registry.values():
             if modality and modality.lower() not in [
                 m.lower() for m in ds.modalities
@@ -172,8 +179,43 @@ class OpenNeuroMCPServer:
             if task and task.lower() not in [t.lower() for t in ds.tasks]:
                 continue
             results.append(ds.model_dump())
+            seen_ids.add(ds.dataset_id.lower())
             if len(results) >= limit:
                 break
+
+        if not self._endpoint.startswith("mock://") and len(results) < limit:
+            try:
+                query_str: str = self.build_search_query(modality, task)
+                with httpx.Client(timeout=5.0) as client:
+                    resp = client.post(self._endpoint, json={"query": query_str})
+                    if resp.status_code == 200:
+                        edges = (
+                            resp.json()
+                            .get("data", {})
+                            .get("datasets", {})
+                            .get("edges", [])
+                        )
+                        for edge in edges:
+                            if len(results) >= limit:
+                                break
+                            node = edge.get("node", {})
+                            d_id = node.get("id", "")
+                            if not d_id or d_id.lower() in seen_ids:
+                                continue
+                            seen_ids.add(d_id.lower())
+                            results.append({
+                                "dataset_id": d_id,
+                                "name": node.get("name", f"OpenNeuro {d_id}"),
+                                "modalities": (
+                                    [modality] if modality else ["bold", "T1w"]
+                                ),
+                                "subject_count": 0,
+                                "tasks": [task] if task else [],
+                                "s3_url": f"s3://openneuro.org/{d_id}",
+                            })
+            except Exception:
+                pass
+
         return results
 
     def get_dataset_metadata(self, dataset_id: str) -> dict[str, Any]:
@@ -224,17 +266,23 @@ class OpenNeuroMCPServer:
             str: string object
                 Executable bash staging command pipeline.
         """
-        repo_url: str = f"https://github.com/OpenNeuroDatasets/{dataset_id}.git"
+        clean_id: str = dataset_id.strip().lower()
+        if not re.match(r"^ds\d{6}$", clean_id):
+            raise ValueError(
+                f"Invalid OpenNeuro dataset accession: {dataset_id}"
+            )
+        quoted_dir: str = shlex.quote(target_dir)
+        repo_url: str = f"https://github.com/OpenNeuroDatasets/{clean_id}.git"
         if sparse_pattern:
             cmd: str = (
-                f"mkdir -p {target_dir} && "
-                f"datalad install -d {target_dir} {repo_url} && "
-                f"cd {target_dir} && datalad get {sparse_pattern}"
+                f"mkdir -p {quoted_dir} && "
+                f"datalad install -d {quoted_dir} {repo_url} && "
+                f"cd {quoted_dir} && datalad get {sparse_pattern}"
             )
         else:
             cmd = (
-                f"mkdir -p {target_dir} && "
-                f"datalad install -d {target_dir} {repo_url}"
+                f"mkdir -p {quoted_dir} && "
+                f"datalad install -d {quoted_dir} {repo_url}"
             )
         return cmd
 
@@ -260,13 +308,132 @@ class OpenNeuroMCPServer:
             str: string object
                 AWS CLI sync command with --no-sign-request.
         """
-        s3_source: str = f"s3://openneuro.org/{dataset_id}"
+        clean_id: str = dataset_id.strip().lower()
+        if not re.match(r"^ds\d{6}$", clean_id):
+            raise ValueError(
+                f"Invalid OpenNeuro dataset accession: {dataset_id}"
+            )
+        s3_source: str = f"s3://openneuro.org/{clean_id}"
+        quoted_dir: str = shlex.quote(target_dir)
         cmd: str = (
-            f"mkdir -p {target_dir} && "
-            f"aws s3 sync --no-sign-request {s3_source} {target_dir} "
+            f"mkdir -p {quoted_dir} && "
+            f"aws s3 sync --no-sign-request {s3_source} {quoted_dir} "
             f'--exclude "*" --include "{include_pattern}"'
         )
         return cmd
+
+    @property
+    def server_name(self) -> str:
+        """Return server name identifier.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str: string object
+                Server identifier.
+        """
+        return "neuri-openneuro-mcp"
+
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
+        """Return declared OpenNeuro tools.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            list[dict[str, Any]]: list object
+                OpenNeuro tool definitions.
+        """
+        tools: list[dict[str, Any]] = [
+            {
+                "name": "search_datasets",
+                "description": "Search OpenNeuro datasets by modality or task",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "modality": {"type": "string"},
+                        "task": {"type": "string"},
+                        "limit": {"type": "integer", "default": 10},
+                    },
+                },
+            },
+            {
+                "name": "get_dataset_metadata",
+                "description": (
+                    "Fetch detailed metadata for an OpenNeuro dataset"
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": {"type": "string"},
+                    },
+                    "required": ["dataset_id"],
+                },
+            },
+            {
+                "name": "build_staging_command",
+                "description": "Generate DataLad or S3 sparse staging command",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": {"type": "string"},
+                        "target_dir": {"type": "string"},
+                        "method": {
+                            "type": "string",
+                            "enum": ["datalad", "s3"],
+                        },
+                        "pattern": {"type": "string"},
+                    },
+                    "required": ["dataset_id", "target_dir"],
+                },
+            },
+        ]
+        return tools
+
+    def call_tool(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> Any:
+        """Execute OpenNeuro tool.
+
+        Parameters
+        ------------
+        tool_name: str
+            Tool to execute.
+        arguments: dict[str, Any]
+            Arguments dictionary.
+
+        Returns
+        --------
+            Any: object
+                Tool output.
+        """
+        if tool_name == "search_datasets":
+            return self.search_datasets(
+                modality=arguments.get("modality"),
+                task=arguments.get("task"),
+                limit=arguments.get("limit", 10),
+            )
+        if tool_name == "get_dataset_metadata":
+            return self.get_dataset_metadata(arguments["dataset_id"])
+        if tool_name == "build_staging_command":
+            m_type: str = arguments.get("method", "datalad")
+            if m_type == "s3":
+                return self.build_s3_staging_command(
+                    dataset_id=arguments["dataset_id"],
+                    target_dir=arguments["target_dir"],
+                    include_pattern=arguments.get("pattern", "sub-01/*"),
+                )
+            return self.build_datalad_staging_command(
+                dataset_id=arguments["dataset_id"],
+                target_dir=arguments["target_dir"],
+                sparse_pattern=arguments.get("pattern"),
+            )
+        raise ValueError(f"Unknown OpenNeuro tool: '{tool_name}'")
 
     def handle_jsonrpc(self, request_json: str) -> str:
         """Dispatch JSON-RPC 2.0 requests to OpenNeuro tools.
@@ -283,152 +450,14 @@ class OpenNeuroMCPServer:
         """
         try:
             req: dict[str, Any] = json.loads(request_json)
-            req_id: Any = req.get("id")
-            method: str = req.get("method", "")
-            params: dict[str, Any] = req.get("params", {})
-
-            if method == "tools/list":
-                tools = [
-                    {
-                        "name": "search_datasets",
-                        "description": "Search OpenNeuro datasets by modality or task",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "modality": {"type": "string"},
-                                "task": {"type": "string"},
-                                "limit": {"type": "integer", "default": 10},
-                            },
-                        },
-                    },
-                    {
-                        "name": "get_dataset_metadata",
-                        "description": (
-                            "Fetch detailed metadata for an OpenNeuro dataset"
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "dataset_id": {"type": "string"},
-                            },
-                            "required": ["dataset_id"],
-                        },
-                    },
-                    {
-                        "name": "build_staging_command",
-                        "description": "Generate DataLad or S3 sparse staging command",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "dataset_id": {"type": "string"},
-                                "target_dir": {"type": "string"},
-                                "method": {"type": "string", "enum": ["datalad", "s3"]},
-                                "pattern": {"type": "string"},
-                            },
-                            "required": ["dataset_id", "target_dir"],
-                        },
-                    },
-                ]
-                return json.dumps(
-                    {"jsonrpc": "2.0", "result": {"tools": tools}, "id": req_id}
-                )
-
-            if method == "tools/call":
-                tool_name: str = params.get("name", "")
-                args: dict[str, Any] = params.get("arguments", {})
-
-                if tool_name == "search_datasets":
-                    res = self.search_datasets(
-                        modality=args.get("modality"),
-                        task=args.get("task"),
-                        limit=args.get("limit", 10),
-                    )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                if tool_name == "get_dataset_metadata":
-                    res_meta = self.get_dataset_metadata(args["dataset_id"])
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": json.dumps(res_meta, indent=2),
-                                    }
-                                ]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                if tool_name == "build_staging_command":
-                    m_type: str = args.get("method", "datalad")
-                    if m_type == "s3":
-                        scmd = self.build_s3_staging_command(
-                            dataset_id=args["dataset_id"],
-                            target_dir=args["target_dir"],
-                            include_pattern=args.get("pattern", "sub-01/*"),
-                        )
-                    else:
-                        scmd = self.build_datalad_staging_command(
-                            dataset_id=args["dataset_id"],
-                            target_dir=args["target_dir"],
-                            sparse_pattern=args.get("pattern"),
-                        )
-                    return json.dumps(
-                        {
-                            "jsonrpc": "2.0",
-                            "result": {
-                                "content": [{"type": "text", "text": scmd}]
-                            },
-                            "id": req_id,
-                        }
-                    )
-
-                return json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32601,
-                            "message": f"Method {tool_name} not found",
-                        },
-                        "id": req_id,
-                    }
-                )
-
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32601,
-                        "message": f"Unsupported method: {method}",
-                    },
-                    "id": req_id,
-                }
-            )
-
-        except Exception as err:
-            return json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {"code": -32000, "message": str(err)},
-                    "id": None,
-                }
-            )
+            resp = self.handle_request(req)
+            return json.dumps(resp) if resp is not None else ""
+        except Exception as exc:
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {exc}"},
+            })
 
     def run_stdio_server(self) -> None:
         """Run stdio JSON-RPC loop for MCP host interaction.
@@ -440,18 +469,33 @@ class OpenNeuroMCPServer:
         Returns
         --------
             None: NoneType object
-                Loops over sys.stdin lines and writes responses.
+                Processes stdin line by line until EOF.
         """
-        for line in sys.stdin:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            response_str: str = self.handle_jsonrpc(stripped)
-            sys.stdout.write(response_str + "\n")
-            sys.stdout.flush()
+        self.run_stdio_loop()
+
+
+def main() -> None:
+    """CLI entrypoint for executing OpenNeuro MCP server over stdio.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        None: NoneType object
+            Instantiates OpenNeuroMCPServer and starts stdio loop.
+    """
+    server: OpenNeuroMCPServer = OpenNeuroMCPServer()
+    server.run_stdio_server()
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__: list[str] = [
     "OpenNeuroDataset",
     "OpenNeuroMCPServer",
+    "main",
 ]
