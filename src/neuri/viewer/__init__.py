@@ -5,6 +5,12 @@ multiplanar volume rendering, surface meshes, and streamline tractography.
 """
 
 from neuri.viewer.local_explorer import LocalFileExplorer
+from neuri.viewer.neurosynth import (
+    NeurosynthAssociation,
+    NeurosynthClient,
+    NeurosynthResult,
+    query_neurosynth_coordinates,
+)
 from neuri.viewer.niivue_bridge import (
     NiiVueBridge,
     NiiVueBridgeHandler,
@@ -13,7 +19,11 @@ from neuri.viewer.niivue_bridge import (
 
 __all__: list[str] = [
     "LocalFileExplorer",
+    "NeurosynthAssociation",
+    "NeurosynthClient",
+    "NeurosynthResult",
     "NiiVueBridge",
     "NiiVueBridgeHandler",
     "NiiVueHTTPServer",
+    "query_neurosynth_coordinates",
 ]

@@ -98,6 +98,14 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             req_path: str | None = path_list[0] if path_list else None
             req_host: str = host_list[0] if host_list else "localhost"
             self._serve_fs_list(req_path, req_host)
+        elif path == "/api/neurosynth":
+            query_params = parse_qs(parsed_url.query)
+            x_val = query_params.get("x", ["0.0"])[0]
+            y_val = query_params.get("y", ["0.0"])[0]
+            z_val = query_params.get("z", ["0.0"])[0]
+            radius_val = query_params.get("radius", ["6"])[0]
+            top_val = query_params.get("top", ["10"])[0]
+            self._serve_neurosynth(x_val, y_val, z_val, radius_val, top_val)
         else:
             self.send_error(404, "Not Found")
 
@@ -309,6 +317,57 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         hosts_info: dict[str, Any] = explorer.get_available_hosts()
         payload_bytes: bytes = json.dumps(hosts_info).encode("utf-8")
         self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload_bytes)))
+        self.end_headers()
+        self.wfile.write(payload_bytes)
+
+    def _serve_neurosynth(
+        self,
+        x_str: str,
+        y_str: str,
+        z_str: str,
+        radius_str: str = "6",
+        top_str: str = "10",
+    ) -> None:
+        """Serve JSON decoding top functional associations from Neurosynth.
+
+        Parameters
+        ------------
+        x_str: str
+            MNI X coordinate string.
+        y_str: str
+            MNI Y coordinate string.
+        z_str: str
+            MNI Z coordinate string.
+        radius_str: str
+            Sphere radius string. Defaults to "6".
+        top_str: str
+            Top associations count string. Defaults to "10".
+
+        Returns
+        --------
+            None: NoneType object
+                Sends JSON Neurosynth lookup response.
+        """
+        from neuri.viewer.neurosynth import query_neurosynth_coordinates
+
+        try:
+            x_val: float = float(x_str)
+            y_val: float = float(y_str)
+            z_val: float = float(z_str)
+            rad_val: int = int(radius_str)
+            top_val: int = int(top_str)
+        except (ValueError, TypeError):
+            self.send_error(400, "Invalid coordinate, radius, or top parameter.")
+            return
+
+        result = query_neurosynth_coordinates(
+            x=x_val, y=y_val, z=z_val, radius=rad_val, top_n=top_val
+        )
+        payload_bytes: bytes = json.dumps(result.to_dict()).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload_bytes)))
         self.end_headers()
