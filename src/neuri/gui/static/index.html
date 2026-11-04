@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neuri Studio — Neuroscience Meta-Harness</title>
+  <link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+
+  <!-- Zone A: Top Header Bar -->
+  <header id="header-bar">
+    <div class="brand-section">
+      <span class="brand-glyph">&gt;&gt;</span>
+      <span class="brand-title">NEURI STUDIO</span>
+      <div class="workspace-badge">
+        <span class="dot">&#9679;</span>
+        <span id="header-workspace-name">Workspace</span>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <button class="command-palette-btn" id="cmd-palette-btn" title="Command Palette">
+        <span>Search commands &amp; actions...</span>
+        <kbd>&cmd;K</kbd>
+      </button>
+    </div>
+
+    <div class="header-actions">
+      <div class="select-pill-group">
+        <span class="select-pill-label">Harness:</span>
+        <select class="pill-select" id="header-harness-select">
+          <option value="agy">agy</option>
+          <option value="codex">codex</option>
+          <option value="ollama">ollama</option>
+          <option value="openclaw">openclaw</option>
+          <option value="opencode">opencode</option>
+        </select>
+      </div>
+
+      <div class="select-pill-group">
+        <span class="select-pill-label">Model:</span>
+        <select class="pill-select" id="header-model-select">
+          <option value="default">default</option>
+        </select>
+      </div>
+
+      <div class="select-pill-group">
+        <button id="theme-toggle-btn" class="dag-btn" style="padding:2px 8px; font-size:0.75rem; border-radius:4px;" title="Toggle / Cycle color themes">🌓 Theme</button>
+        <select class="pill-select" id="header-theme-select">
+          <option value="dark">Obsidian Neuro</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- Zone B & C: Main Workspace -->
+  <main id="main-workspace">
+
+    <!-- Activity Rail -->
+    <nav id="activity-rail">
+      <button class="rail-btn active" data-target="chat" title="Research Stream">💬</button>
+      <button class="rail-btn" data-target="dag" title="DAG Inspector (F3)">🕸️</button>
+      <button class="rail-btn" data-target="fleet" title="Compute Fleet (F2)">🖥️</button>
+      <button class="rail-btn" data-target="niivue" title="NiiVue 3D Viewer (/view)">🧠</button>
+      <button class="rail-btn" data-target="qc" title="BIDS & QC Triage (/bids)">📊</button>
+      <button class="rail-btn" data-target="brain" title="Brain Vault & Referee">📚</button>
+    </nav>
+
+    <!-- Zone B: Chat & Input Column -->
+    <section id="chat-column">
+      <div id="chat-scroll">
+        <!-- Rendered by chat_stream.js -->
+      </div>
+
+      <div id="input-container">
+        <!-- Autocomplete Popup -->
+        <div id="autocomplete-popup"></div>
+
+        <!-- Machine Selector Bar (Shell Mode) -->
+        <div id="machine-selector-bar">
+          <span class="shell-badge">SHELL</span>
+          <span style="color:var(--neuri-muted); font-size:0.75rem;">target:</span>
+          <div class="machine-pills-box" style="display:flex; gap:6px;"></div>
+          <span style="color:var(--neuri-muted); margin-left:auto; font-size:0.72rem;">Tab switch host &middot; Ctrl+S exit</span>
+        </div>
+
+        <!-- Prompt Box -->
+        <div class="prompt-box-wrapper">
+          <textarea id="prompt-input" class="prompt-input-area" rows="1" placeholder="Type a research prompt, /command, or !<cmd>..."></textarea>
+          <button id="send-btn" class="send-btn" title="Send (Enter)">&uarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Split Pane Resizer Divider -->
+    <div id="pane-divider"></div>
+
+    <!-- Zone C: Contextual Studio Viewport -->
+    <section id="studio-viewport">
+      <div class="studio-tab-bar">
+        <div class="studio-tab active" data-tab="dag">🕸️ DAG Flow (F3)</div>
+        <div class="studio-tab" data-tab="niivue">🧠 NiiVue 3D Viewer</div>
+        <div class="studio-tab" data-tab="fleet">🖥️ Compute Fleet (F2)</div>
+        <div class="studio-tab" data-tab="qc">📊 BIDS &amp; QC</div>
+        <div class="studio-tab" data-tab="brain">📚 Brain &amp; Paperback</div>
+      </div>
+
+      <!-- Pane 1: DAG Graph Canvas -->
+      <div class="studio-content-pane active" id="pane-dag">
+        <div id="dag-container">
+          <div class="dag-controls">
+            <button class="dag-btn primary" id="dag-btn-add-node">+ Add Box</button>
+            <button class="dag-btn primary" id="dag-btn-run">&#9658; Run DAG</button>
+            <button class="dag-btn" id="dag-btn-refresh">&#8635; Refresh</button>
+          </div>
+          <svg id="dag-svg"></svg>
+        </div>
+
+        <!-- Add Node Slide-Over Drawer -->
+        <div id="node-add-drawer">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="font-size:0.95rem; color:var(--neuri-primary); font-family:var(--neuri-font-mono);">+ Add Box to DAG</h3>
+            <button id="add-drawer-close-btn" style="background:none; border:none; color:var(--neuri-muted); cursor:pointer; font-size:1.1rem;">&times;</button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Task Instruction:</label>
+            <textarea id="add-node-instruction" placeholder="e.g. Run FreeSurfer cortical reconstruction..." style="height:70px; background:var(--neuri-surface); border:1px solid var(--neuri-border); color:var(--neuri-foreground); border-radius:6px; padding:8px; font-family:var(--neuri-font-mono); font-size:0.8rem; resize:none;"></textarea>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Specialist Role:</label>
+            <select id="add-node-role-select" class="pill-select" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); padding:4px 8px; border-radius:4px;">
+              <option value="neuroimaging_specialist">neuroimaging_specialist (MRI/Preproc)</option>
+              <option value="pipeline_engineer">pipeline_engineer (Workflows/Pipelines)</option>
+              <option value="qc_auditor">qc_auditor (BIDS &amp; Quality QA)</option>
+              <option value="scientific_writer">scientific_writer (COBIDAS &amp; Methods)</option>
+              <option value="compute_operator">compute_operator (HPC &amp; Slurm)</option>
+              <option value="electrophys_specialist">electrophys_specialist (EEG/MEG)</option>
+              <option value="coordinator">coordinator (General AI Agent)</option>
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Execution Harness:</label>
+            <select id="add-node-harness-select" class="pill-select" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); padding:4px 8px; border-radius:4px;">
+              <option value="agy">agy (Default)</option>
+              <option value="codex">codex</option>
+              <option value="ollama">ollama</option>
+              <option value="openclaw">openclaw</option>
+              <option value="opencode">opencode</option>
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Depends On (Parent Box):</label>
+            <select id="add-node-parent-select" class="pill-select" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); padding:4px 8px; border-radius:4px;">
+              <option value="auto">Auto-link to last box</option>
+              <option value="none">None (Root / Parallel branch)</option>
+            </select>
+          </div>
+          <button id="add-node-submit-btn" class="dag-btn primary" style="width:100%; padding:8px 0; margin-top:4px;">+ Add Box to Flow</button>
+        </div>
+
+        <!-- Node Inspector Slide-Over -->
+        <div id="node-inspector-drawer">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="font-size:0.95rem; color:var(--neuri-primary); font-family:var(--neuri-font-mono);" id="inspector-node-id">Node Inspector</h3>
+            <button id="inspector-close-btn" style="background:none; border:none; color:var(--neuri-muted); cursor:pointer; font-size:1.1rem;">&times;</button>
+          </div>
+          <div style="font-size:0.8rem; font-family:var(--neuri-font-mono); color:var(--neuri-muted);">
+            <div>Role: <span id="inspector-role" style="color:var(--neuri-foreground);"></span></div>
+            <div>State: <span id="inspector-state" style="color:var(--neuri-primary); font-weight:bold;"></span></div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Harness:</label>
+            <select id="inspector-harness-select" class="pill-select" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); padding:4px 8px; border-radius:4px;">
+              <option value="agy">agy</option>
+              <option value="codex">codex</option>
+              <option value="ollama">ollama</option>
+              <option value="openclaw">openclaw</option>
+              <option value="opencode">opencode</option>
+            </select>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
+            <label style="font-size:0.75rem; color:var(--neuri-muted);">Task Instruction:</label>
+            <textarea id="inspector-instruction" style="flex:1; background:var(--neuri-surface); border:1px solid var(--neuri-border); color:var(--neuri-foreground); border-radius:6px; padding:8px; font-family:var(--neuri-font-mono); font-size:0.8rem; resize:none;"></textarea>
+          </div>
+          <button id="inspector-save-btn" class="dag-btn primary" style="width:100%; padding:8px 0;">Save Node Configuration</button>
+        </div>
+      </div>
+
+      <!-- Pane 2: NiiVue 3D Viewer (Full Standalone Visualizer Embedded) -->
+      <div class="studio-content-pane" id="pane-niivue" style="padding:0; overflow:hidden; position:relative; width:100%; height:100%;">
+        <iframe id="niivue-embedded-viewer" src="/viewer" title="NiiVue WebGL2 Visualizer" style="width:100%; height:100%; border:none; display:block; background:#0b0f17; flex:1;"></iframe>
+      </div>
+
+      <!-- Pane 3: Compute Fleet -->
+      <div class="studio-content-pane" id="pane-fleet">
+        <div id="fleet-container">
+          <!-- Rendered by fleet_panel.js -->
+        </div>
+      </div>
+
+      <!-- Pane 4: BIDS & QC Triage -->
+      <div class="studio-content-pane" id="pane-qc">
+        <div id="qc-container">
+          <div style="background:var(--neuri-surface); border:1px solid var(--neuri-border); border-radius:8px; padding:14px;">
+            <h3 style="font-size:0.9rem; color:var(--neuri-primary); margin-bottom:8px;">BIDS Cohort Readiness Matrix</h3>
+            <p style="font-size:0.8rem; color:var(--neuri-muted); margin-bottom:12px;">Run <code>/bids validate [pipeline]</code> to inspect pre-flight cohort status across functional, anatomical, and diffusion modalities.</p>
+            <table class="qc-table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>T1w Anat</th>
+                  <th>BOLD Func</th>
+                  <th>DWI Diff</th>
+                  <th>fmap</th>
+                  <th>Pre-flight Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>sub-01</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">READY</td>
+                </tr>
+                <tr>
+                  <td>sub-02</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">&check;</td>
+                  <td style="color:var(--neuri-muted);">&minus;</td>
+                  <td class="badge-pass">&check;</td>
+                  <td class="badge-pass">READY</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background:var(--neuri-surface); border:1px solid var(--neuri-border); border-radius:8px; padding:14px;">
+            <h3 style="font-size:0.9rem; color:var(--neuri-secondary); margin-bottom:8px;">Neuroimaging QC Metrics (fMRIPrep &amp; MRIQC)</h3>
+            <p style="font-size:0.8rem; color:var(--neuri-muted); margin-bottom:12px;">Automated outlier triage derived via <code>NeuroQCTriageEngine</code>.</p>
+            <table class="qc-table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Mean FD</th>
+                  <th>Outlier %</th>
+                  <th>tSNR</th>
+                  <th>Euler #</th>
+                  <th>Triage</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>sub-01</td>
+                  <td>0.14 mm</td>
+                  <td>1.2%</td>
+                  <td>58.4</td>
+                  <td>-2</td>
+                  <td class="badge-pass">PASS</td>
+                </tr>
+                <tr>
+                  <td>sub-02</td>
+                  <td>0.21 mm</td>
+                  <td>4.8%</td>
+                  <td>49.1</td>
+                  <td>-4</td>
+                  <td class="badge-pass">PASS</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pane 5: Brain & Paperback -->
+      <div class="studio-content-pane" id="pane-brain">
+        <div style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
+          <div style="background:var(--neuri-surface); border:1px solid var(--neuri-border); border-radius:8px; padding:14px;">
+            <h3 style="font-size:0.9rem; color:var(--neuri-accent); margin-bottom:6px;">Brain Knowledge Vault</h3>
+            <p style="font-size:0.8rem; color:var(--neuri-muted); margin-bottom:10px;">Dual-scope episodic memory store (Global &amp; Project). Search priors with <code>/brain search &lt;query&gt;</code>.</p>
+            <div style="display:flex; gap:8px;">
+              <input type="text" placeholder="Search memory vault..." style="flex:1; background:var(--neuri-panel); border:1px solid var(--neuri-border); color:var(--neuri-foreground); border-radius:4px; padding:6px 10px; font-size:0.8rem;">
+              <button class="dag-btn primary">Search</button>
+            </div>
+          </div>
+
+          <div style="background:var(--neuri-surface); border:1px solid var(--neuri-border); border-radius:8px; padding:14px;">
+            <h3 style="font-size:0.9rem; color:var(--neuri-primary); margin-bottom:6px;">Paperback Referee Audit &amp; Methods</h3>
+            <p style="font-size:0.8rem; color:var(--neuri-muted); margin-bottom:10px;">5-pass structural, factual, and style audit for academic prose via <code>/paperback review</code> and <code>/paperback methods</code>.</p>
+            <div style="font-family:var(--neuri-font-mono); font-size:0.8rem; color:var(--neuri-foreground); line-height:1.6;">
+              <div>&check; Pass 1: Reverse outline &amp; paragraph thesis verification</div>
+              <div>&check; Pass 2: Empirical citations &amp; DOI grounding</div>
+              <div>&check; Pass 3: Prohibited AI cliché scrub &amp; British English convention</div>
+              <div>&check; Pass 4: Acronym definition consistency lock</div>
+              <div>&check; Pass 5: Statistical significance (p &lt; 0.001) numerical audit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Zone D: Telemetry Footer Bar -->
+  <footer id="telemetry-bar">
+    <div class="telemetry-left">
+      <div class="telemetry-item">
+        <span class="telemetry-label">Tokens:</span>
+        <span id="telemetry-tokens" class="telemetry-val-tokens">0 / 64,000</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Cost:</span>
+        <span id="telemetry-cost" class="telemetry-val-cost">$0.00</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Status:</span>
+        <span id="telemetry-status" class="status-badge status-ready">READY</span>
+      </div>
+    </div>
+
+    <div class="telemetry-right">
+      <span style="color:var(--neuri-muted); font-size:0.72rem;">F2 Machines &middot; F3 DAG &middot; Ctrl+S Shell &middot; &cmd;K Commands &middot; Enter Send</span>
+    </div>
+  </footer>
+
+  <!-- Master Application Script -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

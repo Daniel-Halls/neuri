@@ -359,6 +359,65 @@ class DAGOrchestrator:
 
         matched_skills: list[str] = self._match_skills_from_prompt(prompt)
         if not matched_skills:
+            steps: list[str] = self._extract_prompt_steps(prompt)
+            if len(steps) > 1:
+                step_node_ids: list[str] = []
+                for s_idx, step_text in enumerate(steps):
+                    s_num: int = start_step + s_idx
+                    node_id = f"node_{wf_id}_{s_num}_step"
+                    agent_role = "neuroimaging_specialist"
+                    route = self._config.harness_routing.get(agent_role)
+                    harness_id = (
+                        route.harness
+                        if route is not None and getattr(route, "harness", None)
+                        else active_harness
+                    )
+                    exec_mode = (
+                        route.mode if route is not None else "headless_json"
+                    )
+                    model_id = (
+                        route.model
+                        if route is not None and getattr(route, "model", None)
+                        else active_model
+                    )
+                    specialist = self._resolve_specialist_agent(agent_role)
+                    base_env = specialist.build_envelope(
+                        workflow_id=wf_id,
+                        node_id=node_id,
+                        task_instruction=step_text,
+                        harness_id=harness_id,
+                        execution_mode=exec_mode,
+                        input_artifacts=existing_artifacts,
+                        config=self._config,
+                        extra_context=extra_ctx,
+                        model=model_id,
+                    )
+                    env = base_env.model_copy(update={"skill_paths": []})
+                    node = TaskNode(
+                        node_id=node_id,
+                        workflow_id=wf_id,
+                        agent_role=agent_role,
+                        harness_id=harness_id,
+                        model=model_id,
+                        state=TaskState.PENDING,
+                        attempt=0,
+                        max_retries=self._config.budgets.max_node_retries,
+                        envelope=env,
+                    )
+                    self._blackboard.create_node(node)
+                    step_node_ids.append(node_id)
+
+                for idx in range(1, len(step_node_ids)):
+                    edge = TaskEdge(
+                        parent_node_id=step_node_ids[idx - 1],
+                        child_node_id=step_node_ids[idx],
+                        workflow_id=wf_id,
+                    )
+                    self._blackboard.add_edge(edge)
+
+                self._blackboard.validate_dag_acyclic(wf_id)
+                return wf_id
+
             node_id: str = f"node_{wf_id}_{start_step}_task"
             agent_role: str = "coordinator"
             route = self._config.harness_routing.get(agent_role)
@@ -506,6 +565,51 @@ class DAGOrchestrator:
         self._blackboard.validate_dag_acyclic(wf_id)
         return wf_id
 
+    def _extract_prompt_steps(self, prompt: str) -> list[str]:
+        """Extract multi-step sequential tasks from user prompt text.
+
+        Parameters
+        ------------
+        prompt: str
+            Raw user natural language research prompt.
+
+        Returns
+        --------
+            list[str]: list object
+                Extracted sequential instruction strings.
+        """
+        # 1. Pipeline arrows (e.g. A -> B -> C)
+        if "->" in prompt:
+            parts: list[str] = [
+                p.strip() for p in prompt.split("->") if p.strip()
+            ]
+            if len(parts) > 1:
+                return parts
+
+        # 2. Numbered steps (e.g. 1. ... 2. ... or Step 1: ... Step 2: ...)
+        numbered: list[str] = [
+            p.strip()
+            for p in re.split(
+                r"(?:^|\s+)(?:Step\s*\d+[:.]?|\d+[\.\)])\s*", prompt
+            )
+            if p.strip()
+        ]
+        if len(numbered) > 1:
+            return numbered
+
+        # 3. Explicit sequential markers (e.g. "..., then ...")
+        then_parts: list[str] = [
+            p.strip()
+            for p in re.split(
+                r"(?:,\s*then\s+|\s+then\s+)", prompt, flags=re.IGNORECASE
+            )
+            if p.strip()
+        ]
+        if len(then_parts) > 1:
+            return then_parts
+
+        return [prompt.strip()] if prompt.strip() else []
+
     def _match_skills_from_prompt(self, prompt: str) -> list[str]:
         """Scan catalog triggers against user prompt to select relevant skills.
 
@@ -548,6 +652,35 @@ class DAGOrchestrator:
                         break
         except Exception:
             pass
+
+        # Check domain synonyms across common neuroscience tools
+        keyword_synonyms: dict[str, list[str]] = {
+            "bids-standard": ["bids", "sanitize", "nifti", "edf", "dicom"],
+            "neuroimaging-preproc": [
+                "bet", "skull strip", "brain extraction", "freesurfer",
+                "surface reconstruction", "spatial normalization", "flirt",
+                "ants", "recon-all", "preproc",
+            ],
+            "fmri-postproc": [
+                "glm", "bold", "fmri", "nuisance regression", "nilearn",
+            ],
+            "dwi-tractography": [
+                "dwi", "eddy", "tractography", "topup", "mrtrix", "dipy",
+            ],
+            "eeg-meg-pipeline": [
+                "eeg", "meg", "ica", "mne", "bad channels",
+            ],
+            "remote-compute-slurm": [
+                "slurm", "sbatch", "hpc", "sacct",
+            ],
+            "scientific-writing-neuro": [
+                "methods", "cobidas", "paperback", "literature", "bibtex",
+                "report", "qa", "audit",
+            ],
+        }
+        for s_id, kws in keyword_synonyms.items():
+            if s_id not in matched and any(kw in prompt_lower for kw in kws):
+                matched.append(s_id)
 
         return matched
 

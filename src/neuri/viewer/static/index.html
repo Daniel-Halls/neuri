@@ -21,22 +21,24 @@
     }
     header {
       background-color: #111827;
-      padding: 8px 16px;
+      padding: 8px 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid #334155;
       z-index: 10;
-      gap: 12px;
+      gap: 8px;
+      flex-wrap: wrap;
+      row-gap: 8px;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
-      min-width: 220px;
+      gap: 8px;
+      min-width: 140px;
     }
     .brand h1 {
-      font-size: 1.05rem;
+      font-size: 0.95rem;
       font-weight: 700;
       letter-spacing: 0.05em;
       color: #38bdf8;
@@ -45,17 +47,18 @@
       gap: 6px;
     }
     .brand span {
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       color: #94a3b8;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 220px;
+      max-width: 180px;
     }
     .controls {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .file-action-group {
       display: flex;
@@ -491,6 +494,9 @@
         <button id="btn-open-volume" class="primary-btn" onclick="openFileExplorerModal()" title="Open file explorer to browse volumes on the selected host">
           📂 Open Volume
         </button>
+        <button id="btn-demo-volume" class="secondary-btn" onclick="loadDemoVolume()" title="Load standard MNI152 template volume">
+          🧠 Demo
+        </button>
         <input type="file" id="browser-file-picker" style="display: none;" accept=".nii,.nii.gz,.mgh,.mgz,.dcm,.dim,.img,.hdr" onchange="handleBrowserFileSelected(event)">
       </div>
 
@@ -519,6 +525,7 @@
     <div class="status-panel">
       <span id="coords-mni" class="coord-pill">MNI: (0.0, 0.0, 0.0)</span>
       <span id="intensity-val" class="coord-pill">Val: --</span>
+      <button id="btn-attach-prompt" class="secondary-btn" style="padding: 2px 8px; font-size: 0.72rem; color: #38bdf8;" onclick="attachCoordsToStudioPrompt()" title="Attach current MNI coordinates to prompt">+ Attach</button>
     </div>
   </header>
 
@@ -623,6 +630,52 @@
     let rawFsEntries = [];
     let selectedFsEntry = null;
     let showAllFiles = false;
+    let latestCoords = null;
+
+    function attachCoordsToStudioPrompt() {
+      if (!latestCoords) return;
+      const coordText = ` MNI [${latestCoords.join(", ")}] `;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: "NEURI_ATTACH_COORDS",
+          text: coordText,
+          coords: latestCoords
+        }, "*");
+      } else {
+        navigator.clipboard.writeText(coordText).then(() => {
+          alert(`Copied ${coordText} to clipboard`);
+        }).catch(() => {});
+      }
+    }
+
+    async function loadDemoVolume() {
+      if (!nv) return;
+      try {
+        document.getElementById("scene-title").innerText = "Loading MNI152 template...";
+        const demoUrl = "https://niivue.github.io/niivue-demo-images/mni152.nii.gz";
+        try {
+          await nv.loadVolumes([{
+            url: demoUrl,
+            name: "mni152.nii.gz",
+            colormap: "gray",
+            opacity: 1.0
+          }]);
+        } catch (demoErr) {
+          console.warn("loadVolumes failed, trying ArrayBuffer fallback:", demoErr);
+          const resp = await fetch(demoUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const buf = await resp.arrayBuffer();
+          await nv.loadFromArrayBuffer(buf, "mni152.nii.gz");
+        }
+        currentSceneId = "demo_mni152";
+        document.getElementById("scene-title").innerText = "Neuri: MNI152 Standard Template";
+        document.getElementById("hud-scene-id").innerText = "demo-mni152";
+        document.getElementById("hud-layers").innerText = 1;
+      } catch (err) {
+        console.warn("Failed to load demo volume:", err);
+        alert(`Failed to load demo volume: ${err.message || err}`);
+      }
+    }
 
     async function initNiiVue() {
       if (typeof niivue === "undefined") {
@@ -635,12 +688,27 @@
         loadingText: "Loading neuroimaging volume...",
         onLocationChange: (data) => {
           if (data && data.mm) {
+            latestCoords = [
+              Math.round(data.mm[0]),
+              Math.round(data.mm[1]),
+              Math.round(data.mm[2])
+            ];
             document.getElementById("coords-mni").innerText =
               `MNI: (${data.mm[0].toFixed(1)}, ${data.mm[1].toFixed(1)}, ${data.mm[2].toFixed(1)})`;
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({
+                type: "NEURI_NIIVUE_COORDS",
+                coords: latestCoords,
+                mm: data.mm,
+                values: data.values
+              }, "*");
+            }
           }
           if (data && data.values && data.values.length > 0) {
+            const rawVal = data.values[0].value !== undefined ? data.values[0].value : data.values[0];
+            const displayVal = typeof rawVal === "number" ? rawVal.toFixed(2) : rawVal;
             document.getElementById("intensity-val").innerText =
-              `Val: ${data.values[0].value.toFixed(2)}`;
+              `Val: ${displayVal}`;
           }
         }
       });
@@ -1182,6 +1250,26 @@
         if (modal && modal.style.display !== "none") {
           closeFileExplorerModal();
         }
+      }
+    });
+
+    // Listen for parent messages when embedded in Neuri Studio sidebar
+    window.addEventListener("message", async (event) => {
+      if (!event.data) return;
+      if (event.data.type === "NEURI_LOAD_VOLUME" && event.data.volume) {
+        await applyLoadedVolume(event.data.volume);
+      } else if (event.data.type === "NEURI_SET_VIEW" && event.data.mode !== undefined) {
+        setViewMode(event.data.mode);
+      } else if (event.data.type === "NEURI_RESIZE") {
+        if (nv && typeof nv.resizeListener === "function") {
+          nv.resizeListener();
+        } else if (nv && typeof nv.drawScene === "function") {
+          nv.drawScene();
+        }
+      } else if (event.data.type === "NEURI_POLL_SCENE") {
+        await pollScene();
+      } else if (event.data.type === "NEURI_LOAD_DEMO") {
+        await loadDemoVolume();
       }
     });
 
