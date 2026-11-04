@@ -7,6 +7,7 @@ desktop window (via pywebview if available) or launches the system browser.
 import contextlib
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -129,6 +130,54 @@ class NeuriGUILauncher:
         active_url: str = self._url
         return active_url
 
+    @property
+    def workspace_dir(self) -> Path:
+        """Active workspace root directory.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            Path: Path object
+                Workspace directory path.
+        """
+        active_ws: Path = self._workspace_dir
+        return active_ws
+
+    @property
+    def model(self) -> str | None:
+        """Active AI model override.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str | None: string or None
+                Model identifier.
+        """
+        active_model: str | None = self._model
+        return active_model
+
+    @property
+    def harness(self) -> str | None:
+        """Active AI harness override.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            str | None: string or None
+                Harness identifier.
+        """
+        active_harness: str | None = self._harness
+        return active_harness
+
     def start_server(self) -> str:
         """Instantiate and start NeuriGUIServer on a background daemon thread.
 
@@ -174,8 +223,34 @@ class NeuriGUILauncher:
         self._server_thread.start()
         return self._url
 
-    def launch(self) -> None:
-        """Start server and display GUI in desktop window or browser.
+    def launch(self, web: bool = False) -> None:
+        """Start and display GUI in native desktop window or fallback web browser.
+
+        Parameters
+        ------------
+        web: bool
+            Whether to force web browser mode instead of native desktop app.
+            Defaults to False.
+
+        Returns
+        --------
+            None: NoneType object
+                Runs interactive loop until window closes or Ctrl+C.
+        """
+        if not web:
+            try:
+                self.launch_desktop()
+                return
+            except Exception as err:
+                print(
+                    f"[!] Desktop launch encountered: {err}. "
+                    "Falling back to web browser...",
+                    file=sys.stderr,
+                )
+        self.launch_browser()
+
+    def launch_desktop(self) -> None:
+        """Launch native standalone Tauri desktop window shell.
 
         Parameters
         ------------
@@ -184,7 +259,62 @@ class NeuriGUILauncher:
         Returns
         --------
             None: NoneType object
-                Runs interactive loop until window closes or Ctrl+C.
+                Spawns native desktop process and waits for termination.
+        """
+        repo_root: Path = PathResolver.get_repo_root()
+        debug_bin: Path = (
+            repo_root / "src-tauri" / "target" / "debug" / "neuri-desktop"
+        )
+        release_bin: Path = (
+            repo_root / "src-tauri" / "target" / "release" / "neuri-desktop"
+        )
+
+        target_bin: Path | None = None
+        if release_bin.is_file():
+            target_bin = release_bin
+        elif debug_bin.is_file():
+            target_bin = debug_bin
+        else:
+            # Build debug binary on demand if cargo is available
+            with contextlib.suppress(Exception):
+                subprocess.run(
+                    [
+                        "cargo",
+                        "build",
+                        "--manifest-path",
+                        str(repo_root / "src-tauri" / "Cargo.toml"),
+                    ],
+                    cwd=repo_root,
+                    check=True,
+                )
+                if debug_bin.is_file():
+                    target_bin = debug_bin
+
+        if target_bin is not None and target_bin.is_file():
+            desktop_args: list[str] = [str(target_bin)]
+            if self.workspace_dir:
+                desktop_args.extend(["--workspace", str(self.workspace_dir)])
+            if self.model:
+                desktop_args.extend(["--model", self.model])
+            if self.harness:
+                desktop_args.extend(["--harness", self.harness])
+            subprocess.run(desktop_args, cwd=repo_root, check=True)
+            return
+
+        # Fallback to browser if no desktop binary is available
+        self.launch_browser()
+
+    def launch_browser(self) -> None:
+        """Start server and display GUI in system browser.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Runs interactive loop until Ctrl+C.
         """
         url: str = self.start_server()
 

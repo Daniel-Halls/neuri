@@ -9,6 +9,7 @@ import { DagCanvas } from "./dag_canvas.js";
 import { FleetPanel } from "./fleet_panel.js";
 import { NiiVuePanel } from "./niivue_panel.js";
 import { StudioTabs } from "./studio_tabs.js";
+import { DesktopBridge } from "./desktop_bridge.js";
 
 export class NeuriApp {
   constructor() {
@@ -122,7 +123,7 @@ export class NeuriApp {
 
   handleSessionEvent(data) {
     const type = (data.event_type || "").toUpperCase();
-    const p = data.payload || {};
+    const p = data.payload || data.data || {};
 
     if (type === "ASSISTANT_CHUNK") {
       this.chatStream.appendContentDelta(p.content_delta);
@@ -133,10 +134,14 @@ export class NeuriApp {
     } else if (type === "TOOL_CALL_UPDATE") {
       this.chatStream.appendToolCallBadge(p);
     } else if (type === "STATUS_UPDATE") {
-      if (p.action === "token_increment") {
+      if (p.action === "live_reload_assets") {
+        DesktopBridge.handleLiveReloadEvent(p);
+      } else if (p.action === "token_increment") {
         this.updateTelemetry(p.tokens || 0, p.cost_usd || 0.0);
       } else if (p.action === "change_theme" && p.theme && p.theme.css_variables) {
         this.themeEngine.applyCssVariables(p.theme.css_variables);
+      } else if (p.status === "workflow_planned") {
+        this.dagCanvas.fetchDag();
       }
     } else if (type === "WORKFLOW_COMPLETED") {
       this.chatStream.finalizeLiveCard();

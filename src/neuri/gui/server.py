@@ -15,6 +15,7 @@ import queue
 import re
 import socket
 from socketserver import ThreadingMixIn
+import sys
 import tempfile
 import threading
 import time
@@ -300,6 +301,11 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
+        self.send_header(
+            "Cache-Control", "no-store, no-cache, must-revalidate"
+        )
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(content)
 
@@ -332,7 +338,11 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         self.send_response(200)
         self.send_header("Content-Type", mime_type or "application/octet-stream")
         self.send_header("Content-Length", str(len(content)))
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header(
+            "Cache-Control", "no-store, no-cache, must-revalidate"
+        )
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(content)
 
@@ -1042,7 +1052,29 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         self._send_json_response({"success": True})
 
 
+def resolve_gui_static_dir() -> Path:
+    """Resolve GUI static directory across source tree or frozen bundle.
+
+    Parameters
+    ------------
+    None
+
+    Returns
+    --------
+        Path: Path object
+            Filesystem path to GUI static assets.
+    """
+    if hasattr(sys, "_MEIPASS"):
+        bundled: Path = (
+            Path(getattr(sys, "_MEIPASS")) / "neuri" / "gui" / "static"
+        )
+        if bundled.is_dir():
+            return bundled
+    return Path(__file__).resolve().parent / "static"
+
+
 __all__: list[str] = [
     "NeuriGUIHandler",
     "NeuriGUIServer",
+    "resolve_gui_static_dir",
 ]

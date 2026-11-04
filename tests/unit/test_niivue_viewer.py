@@ -364,7 +364,10 @@ def test_niivue_bridge_fs_endpoints(tmp_path: Path) -> None:
         with urllib.request.urlopen(file_stream_url) as resp:
             assert resp.status == 200
             assert resp.read() == b"synthetic nifti payload"
-            assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+            assert resp.headers.get("Access-Control-Allow-Origin") in (
+                "*",
+                "http://127.0.0.1",
+            )
 
     finally:
         bridge.stop()

@@ -139,6 +139,7 @@ class SSHControlMasterPool:
             proc_check: asyncio.subprocess.Process = (
                 await asyncio.create_subprocess_exec(
                     *check_cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
@@ -185,6 +186,7 @@ class SSHControlMasterPool:
             proc_warm: asyncio.subprocess.Process = (
                 await asyncio.create_subprocess_exec(
                     *warm_args,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
@@ -227,6 +229,7 @@ class SSHControlMasterPool:
             process: asyncio.subprocess.Process = (
                 await asyncio.create_subprocess_exec(
                     *full_cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

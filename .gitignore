@@ -2,6 +2,7 @@
 .agents/*
 technical_documenation/*
 assests/*
+.neuri/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

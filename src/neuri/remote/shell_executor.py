@@ -628,7 +628,7 @@ class ShellCommandExecutor:
                 Renderable markdown report card.
         """
         status_badge: str = (
-            " (✓ Success)"
+            ""
             if result.exit_code == 0
             else f" (✗ Exit Code: {result.exit_code})"
         )

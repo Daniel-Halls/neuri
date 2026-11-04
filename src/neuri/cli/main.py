@@ -313,7 +313,7 @@ class NeuriCLI:
                 elif tool_status == "completed":
                     dur_str: str = f" in {dur}ms" if dur is not None else ""
                     self.console.print(
-                        f"[green]✓ Tool completed: "
+                        f"[green] Tool completed: "
                         f"[bold]{tool_name}[/bold]{dur_str}[/green]"
                     )
                 elif tool_status == "failed":
@@ -408,6 +408,7 @@ class NeuriCLI:
         harness: str | None = None,
         port: int = 8420,
         open_browser: bool = True,
+        web: bool = False,
     ) -> None:
         """Launch Neuri Studio Graphical User Interface.
 
@@ -423,6 +424,8 @@ class NeuriCLI:
             Preferred HTTP port. Defaults to 8420.
         open_browser: bool
             Whether to open browser window automatically. Defaults to True.
+        web: bool
+            Whether to force browser mode instead of desktop. Defaults to False.
 
         Returns
         --------
@@ -431,9 +434,11 @@ class NeuriCLI:
         """
         from neuri.gui.launcher import NeuriGUILauncher
 
+        mode_str: str = "Web Browser Mode" if web else "Native Desktop Mode"
         self.console.print(
-            f"[dim cyan]>> Starting Neuri Studio at [/dim cyan]"
-            f"[bold cyan]http://127.0.0.1:{port}[/bold cyan]"
+            f"[dim cyan]>> Starting Neuri Studio ([/dim cyan]"
+            f"[bold green]{mode_str}[/bold green]"
+            f"[dim cyan])...[/dim cyan]"
         )
         launcher: NeuriGUILauncher = NeuriGUILauncher(
             workspace_dir=workspace_dir,
@@ -442,7 +447,7 @@ class NeuriCLI:
             port=port,
             open_browser=open_browser,
         )
-        launcher.launch()
+        launcher.launch(web=web)
 
     def gui_cmd(
         self,
@@ -484,6 +489,13 @@ class NeuriCLI:
                 help="Start GUI server without opening browser.",
             ),
         ] = False,
+        web: Annotated[
+            bool,
+            typer.Option(
+                "--web",
+                help="Launch in web browser mode instead of native desktop app.",
+            ),
+        ] = False,
     ) -> None:
         """Launch Neuri Studio Graphical User Interface via 'neuri gui' subcommand.
 
@@ -499,6 +511,8 @@ class NeuriCLI:
             Port for GUI server. Defaults to 8420.
         no_browser: bool
             Whether to prevent browser opening. Defaults to False.
+        web: bool
+            Whether to force web browser mode. Defaults to False.
 
         Returns
         --------
@@ -514,6 +528,7 @@ class NeuriCLI:
             harness=harness,
             port=port,
             open_browser=not no_browser,
+            web=web,
         )
 
     def cmd(
@@ -623,7 +638,7 @@ class NeuriCLI:
         if installed:
             installed_str: str = ", ".join(installed)
             self.console.print(
-                "[green]✓ Neuri base environment installed successfully "
+                "[green] Neuri base environment installed successfully "
                 f"into:[/green] {target_dir}"
             )
             self.console.print(
