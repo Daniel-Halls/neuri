@@ -32,9 +32,11 @@ from neuri.core.installer import NeuriInstaller
 from neuri.core.orchestrator import DAGOrchestrator
 from neuri.core.paths import PathResolver
 from neuri.core.schemas import (
+    NeuriTaskEnvelope,
     NiiVueLayerSpec,
     NiiVueSceneSpec,
     RemoteArtifact,
+    TaskEdge,
     TaskNode,
     TaskState,
 )
@@ -1985,11 +1987,125 @@ class SlashCommandRouter:
                 },
             )
 
+        if args and args[0].lower() == "add":
+            add_args: list[str] = args[1:]
+            if not add_args:
+                return SlashCommandResult(
+                    command="/plan add",
+                    success=False,
+                    markdown_output=(
+                        "**Usage:** `/plan add [parent_node_id] <instruction>`\n\n"
+                        "Add a new step box to the planned DAG workflow.\n"
+                        "- If `parent_node_id` is omitted, it automatically links to "
+                        "the last planned step.\n"
+                        "- *Example:* `/plan add Run skull stripping with BET`\n"
+                        "- *Example:* `/plan add node_1 Run QA report`"
+                    ),
+                )
+
+            wf_id: str | None = self._last_planned_workflow_id
+            if not wf_id:
+                wfs: list[dict[str, Any]] = self._blackboard.list_workflows()
+                if wfs:
+                    wf_id = str(wfs[-1].get("workflow_id", ""))
+            if not wf_id:
+                wf_id = f"wf_{uuid.uuid4().hex[:12]}"
+                self._blackboard.create_workflow(
+                    workflow_id=wf_id,
+                    prompt="Interactive Workflow",
+                )
+            self._last_planned_workflow_id = wf_id
+
+            existing_nodes: list[TaskNode] = (
+                self._blackboard.get_nodes_by_workflow(wf_id)
+            )
+            existing_ids: set[str] = {n.node_id for n in existing_nodes}
+
+            parent_id: str | None = None
+            if add_args[0] in existing_ids and len(add_args) > 1:
+                parent_id = add_args[0]
+                task_instr: str = " ".join(add_args[1:]).strip()
+            elif existing_nodes:
+                parent_id = existing_nodes[-1].node_id
+                task_instr = " ".join(add_args).strip()
+            else:
+                task_instr = " ".join(add_args).strip()
+
+            step_idx: int = len(existing_nodes) + 1
+            new_node_id: str = f"node_{wf_id}_{step_idx}_step"
+            agent_role: str = "neuroimaging_specialist"
+            active_harness: str = getattr(
+                self._config.project, "default_harness", "agy"
+            )
+            route = self._config.harness_routing.get(agent_role)
+            harness_id: str = (
+                route.harness
+                if route is not None and getattr(route, "harness", None)
+                else active_harness
+            )
+            model_id: str | None = route.model if route is not None else None
+
+            envelope: NeuriTaskEnvelope = NeuriTaskEnvelope(
+                workflow_id=wf_id,
+                node_id=new_node_id,
+                agent_role=agent_role,
+                harness_id=harness_id,
+                model=model_id,
+                task_instruction=task_instr,
+                execution_mode="headless_json",
+            )
+            node: TaskNode = TaskNode(
+                node_id=new_node_id,
+                workflow_id=wf_id,
+                agent_role=agent_role,
+                harness_id=harness_id,
+                model=model_id,
+                state=TaskState.PENDING,
+                attempt=0,
+                max_retries=self._config.budgets.max_node_retries,
+                envelope=envelope,
+            )
+            self._blackboard.create_node(node)
+            if parent_id:
+                edge: TaskEdge = TaskEdge(
+                    workflow_id=wf_id,
+                    parent_node_id=parent_id,
+                    child_node_id=new_node_id,
+                )
+                self._blackboard.add_edge(edge)
+
+            updated_nodes: list[TaskNode] = (
+                self._blackboard.get_nodes_by_workflow(wf_id)
+            )
+            rows: list[str] = [
+                f"### Added Step `{new_node_id}` to Planned DAG: `{wf_id}`\n",
+                f"- **New Instruction:** {task_instr}\n",
+                f"- **Linked From:** `{parent_id or 'None (Root)'}`\n\n",
+                "| Step | Node ID | Role | Harness | State |",
+                "| :--- | :--- | :--- | :--- | :--- |",
+            ]
+            for idx, n in enumerate(updated_nodes, start=1):
+                rows.append(
+                    f"| {idx} | `{n.node_id}` | `{n.agent_role}` | "
+                    f"`{n.harness_id}` | `○ {n.state.value}` |"
+                )
+            rows.append(
+                "\nAdd more steps with `/plan add <instruction>` "
+                "or execute with `/run`."
+            )
+            return SlashCommandResult(
+                command="/plan add",
+                success=True,
+                markdown_output="\n".join(rows),
+                data={"node_id": new_node_id, "workflow_id": wf_id},
+            )
+
         prompt: str = " ".join(args).strip()
         if not prompt:
             help_msg: str = (
                 "### Neuri DAG Planner\n\n"
                 "**Usage:** `/plan <research instruction or pipeline>`\n\n"
+                "- `/plan add [parent_id] <instruction>`: Add a step box to DAG\n"
                 "- `/plan inspect [node_id]`: Inspect node details\n"
                 "- `/plan edit <node_id> <instruction>`: Modify instruction\n"
                 "- `/plan set <node_id> <harness> [model]`: Modify routing\n\n"

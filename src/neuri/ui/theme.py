@@ -293,6 +293,64 @@ class NeuriTheme:
         )
         return textual_theme
 
+    def to_css_variables(self) -> dict[str, str]:
+        """Export all semantic theme tokens as CSS custom property pairs.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            dict[str, str]: dict object
+                Mapping of '--neuri-<token>' CSS variable names to hex strings.
+        """
+        css_vars: dict[str, str] = {
+            "--neuri-background": self.background,
+            "--neuri-foreground": self.foreground,
+            "--neuri-surface": self.surface,
+            "--neuri-surface-elevated": self.surface_elevated,
+            "--neuri-panel": self.panel,
+            "--neuri-border": self.border,
+            "--neuri-primary": self.primary,
+            "--neuri-secondary": self.secondary,
+            "--neuri-accent": self.accent,
+            "--neuri-warning": self.warning,
+            "--neuri-error": self.error,
+            "--neuri-success": self.success,
+            "--neuri-muted": self.muted,
+            "--neuri-selection-bg": self.selection_bg,
+            "--neuri-selection-fg": self.selection_fg,
+            "--neuri-tokens": self.tokens,
+            "--neuri-cost": self.cost,
+        }
+        return css_vars
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert theme to a serializable dictionary.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            dict[str, Any]: dict object
+                Dictionary representation of theme attributes and CSS variables.
+        """
+        data: dict[str, Any] = {
+            "name": self.name,
+            "display_name": self.display_name,
+            "description": self.description,
+            "dark": self.dark,
+            "colors": {
+                attr: getattr(self, attr)
+                for attr, _ in self.TOKEN_DERIVATIONS
+            },
+            "css_variables": self.to_css_variables(),
+        }
+        return data
+
 
 class NeuriThemeManager:
     """Manages discovery, loading, and persistence of Neuri visual themes.

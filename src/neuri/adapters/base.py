@@ -424,6 +424,7 @@ class BaseHarnessAdapter(ABC):
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -575,6 +576,9 @@ class BaseHarnessAdapter(ABC):
                         on_event(ev)
 
                 norm: NormalizedStreamResult = self.parse_stream_line(raw_line)
+                for ev in norm.events:
+                    if on_event is not None:
+                        on_event(ev)
                 if norm.content_delta and on_event is not None:
                     c_ev: TelemetryEvent = TelemetryEvent(
                         event_id=f"tevt_{uuid.uuid4().hex[:16]}",
