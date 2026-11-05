@@ -8,6 +8,10 @@ import argparse
 import json
 import sys
 
+from neuri.viewer.fsl_atlas import (
+    FSLCoordinateResult,
+    query_fsl_coordinates,
+)
 from neuri.viewer.neurosynth import (
     NeurosynthResult,
     query_neurosynth_coordinates,
@@ -22,7 +26,7 @@ def run_whats_this(
     top_n: int = 10,
     as_json: bool = False,
 ) -> int:
-    """Execute Neurosynth coordinate lookup and output results.
+    """Execute FSL anatomy and Neurosynth lookup and output results.
 
     Parameters
     ------------
@@ -44,14 +48,23 @@ def run_whats_this(
         int: integer object
             Process exit status code (0 for success).
     """
-    res: NeurosynthResult = query_neurosynth_coordinates(
+    fsl_res: FSLCoordinateResult = query_fsl_coordinates(x=x, y=y, z=z)
+    ns_res: NeurosynthResult = query_neurosynth_coordinates(
         x=x, y=y, z=z, radius=radius, top_n=top_n
     )
 
     if as_json:
-        sys.stdout.write(json.dumps(res.to_dict(), indent=2) + "\n")
+        combined: dict[str, Any] = {
+            "x": x,
+            "y": y,
+            "z": z,
+            "fsl_anatomy": fsl_res.to_dict(),
+            "neurosynth": ns_res.to_dict(),
+        }
+        sys.stdout.write(json.dumps(combined, indent=2) + "\n")
     else:
-        sys.stdout.write(res.format_markdown() + "\n")
+        sys.stdout.write(fsl_res.format_markdown() + "\n\n")
+        sys.stdout.write(ns_res.format_markdown() + "\n")
     return 0
 
 

@@ -4,6 +4,14 @@ Provides embedded local HTTP streaming and declarative scene management for
 multiplanar volume rendering, surface meshes, and streamline tractography.
 """
 
+from neuri.viewer.fsl_atlas import (
+    FSLAtlasClient,
+    FSLAtlasHit,
+    FSLCoordinateResult,
+    FSLRegionSearchResult,
+    query_fsl_coordinates,
+    search_fsl_regions,
+)
 from neuri.viewer.local_explorer import LocalFileExplorer
 from neuri.viewer.neurosynth import (
     NeurosynthAssociation,
@@ -18,6 +26,10 @@ from neuri.viewer.niivue_bridge import (
 )
 
 __all__: list[str] = [
+    "FSLAtlasClient",
+    "FSLAtlasHit",
+    "FSLCoordinateResult",
+    "FSLRegionSearchResult",
     "LocalFileExplorer",
     "NeurosynthAssociation",
     "NeurosynthClient",
@@ -25,5 +37,7 @@ __all__: list[str] = [
     "NiiVueBridge",
     "NiiVueBridgeHandler",
     "NiiVueHTTPServer",
+    "query_fsl_coordinates",
     "query_neurosynth_coordinates",
+    "search_fsl_regions",
 ]

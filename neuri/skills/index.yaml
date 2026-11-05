@@ -43,6 +43,13 @@ skills:
     modalities: [table, report_qa]
     triggers: [sbatch generation, GPU scheduling, job status]
 
+  - id: fsl-atlas
+    aliases: [fsl_atlas, atlasquery, mni_atlas]
+    name: FSL Anatomical & White-Matter Atlas Lookup
+    description: Offline MNI152 coordinate-to-anatomy and region-to-coordinate lookup across 20 human FSL atlases.
+    modalities: [T1w, bold, dwi, coordinates]
+    triggers: [MNI coordinates, MNI [, atlasquery, Harvard-Oxford, Juelich, Talairach, JHU tract, XTRACT, what brain region, ROI coordinates]
+
   - id: scientific-writing-neuro
     aliases: [scientific_writer]
     name: Scientific Writer & COBIDAS

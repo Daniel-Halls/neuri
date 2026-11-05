@@ -758,37 +758,39 @@
     </div>
   </div>
 
-  <!-- Neurosynth "What's this?" Modal -->
+  <!-- Location Query Modal (FSL Atlases & Neurosynth) -->
   <div id="neurosynth-modal" class="modal-backdrop" style="display: none;"
     onclick="onNeurosynthModalBackdropClick(event)">
-    <div class="modal-dialog" style="max-width: 640px;">
+    <div class="modal-dialog" style="max-width: 680px;">
       <div class="modal-header" style="border-bottom: 1px solid rgba(192, 132, 252, 0.25);">
         <div class="modal-title">
           <h3 style="color: #be7dffac;">
-            <span>Neurosynth Association</span>
+            <span>📍 Location Query — Anatomy & Function</span>
           </h3>
           <span id="neurosynth-modal-subtitle" class="modal-subtitle">
-            Top 10 terms for location
+            Offline FSL Atlases (20 Human Parcellations) & Neurosynth Associations
           </span>
         </div>
         <button class="close-btn" onclick="closeNeurosynthModal()" title="Close">✕</button>
       </div>
 
-      <div class="modal-toolbar" style="background: #0d121c; border-bottom: 1px solid #1e293b;">
+      <div class="modal-toolbar" style="background: #0d121c; border-bottom: 1px solid #1e293b; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem;">
           <span style="color: #94a3b8;">Coordinates:</span>
           <span id="neurosynth-coords-pill" class="coord-pill" style="color: #38bdf8;">MNI: (0, 0, 0)</span>
-          <span style="color: #94a3b8; margin-left: 6px;">Radius:</span>
-          <span class="coord-pill">6 mm</span>
           <span id="neurosynth-source-badge" class="neurosynth-badge neurosynth-badge-online"
-            style="margin-left: 6px;">online</span>
+            style="margin-left: 6px;">offline fsl</span>
+        </div>
+        <div class="segmented-group" style="margin-left: auto;">
+          <button id="tab-btn-fsl" class="active" onclick="switchLocationTab('fsl')">🏛️ FSL Anatomy</button>
+          <button id="tab-btn-neurosynth" onclick="switchLocationTab('neurosynth')">🔮 Neurosynth</button>
         </div>
       </div>
 
-      <div class="fs-list-container" id="neurosynth-body" style="min-height: 220px; max-height: 380px; padding: 0;">
+      <div class="fs-list-container" id="neurosynth-body" style="min-height: 240px; max-height: 400px; padding: 0;">
         <div id="neurosynth-loading" style="display: none; padding: 40px 20px; text-align: center; color: #94a3b8;">
           <div class="spinner" style="margin-bottom: 12px;"></div>
-          <div>Querying Neurosynth database for MNI coordinates...</div>
+          <div>Resolving FSL anatomical atlases and Neurosynth associations...</div>
         </div>
 
         <div id="neurosynth-error" style="display: none; padding: 30px 20px; text-align: center; color: #f87171;">
@@ -796,30 +798,49 @@
           <div id="neurosynth-error-msg" style="font-size: 0.78rem; color: #cbd5e1;"></div>
         </div>
 
-        <table class="fs-table" id="neurosynth-table" style="display: none;">
-          <thead>
-            <tr>
-              <th style="width: 8%; text-align: center;">#</th>
-              <th style="width: 46%;">Functional / Anatomical Term</th>
-              <th style="width: 22%; text-align: right;">Z-Score</th>
-              <th style="width: 24%;">Posterior Prob.</th>
-            </tr>
-          </thead>
-          <tbody id="neurosynth-table-body">
-            <!-- Rendered dynamically -->
-          </tbody>
-        </table>
+        <!-- FSL Anatomy Table Container -->
+        <div id="fsl-table-container">
+          <table class="fs-table" id="fsl-table" style="display: none;">
+            <thead>
+              <tr>
+                <th style="width: 32%;">FSL Atlas</th>
+                <th style="width: 44%;">Anatomical Structure / Tract</th>
+                <th style="width: 24%; text-align: right;">Probability / Type</th>
+              </tr>
+            </thead>
+            <tbody id="fsl-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Neurosynth Table Container -->
+        <div id="neurosynth-table-container" style="display: none;">
+          <table class="fs-table" id="neurosynth-table">
+            <thead>
+              <tr>
+                <th style="width: 8%; text-align: center;">#</th>
+                <th style="width: 46%;">Functional / Anatomical Term</th>
+                <th style="width: 22%; text-align: right;">Z-Score</th>
+                <th style="width: 24%;">Posterior Prob.</th>
+              </tr>
+            </thead>
+            <tbody id="neurosynth-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="modal-footer">
         <div style="font-size: 0.72rem; color: #64748b;">
-          Database: <span style="color: #94a3b8;">Neurosynth</span>
+          Databases: <span style="color: #94a3b8;">FSL Atlases (Offline) • Neurosynth (14k studies)</span>
         </div>
         <div class="modal-footer-btns">
           <button id="btn-neurosynth-copy" class="secondary-btn" onclick="copyNeurosynthMarkdown()"
-            title="Copy markdown table to clipboard">📋 Copy</button>
+            title="Copy markdown summary table to clipboard">📋 Copy</button>
           <button id="btn-neurosynth-attach" class="primary-btn" onclick="attachNeurosynthToPrompt()"
-            style="background: #9333ea; border-color: #a855f7;" title="Attach Neurosynth summary to AI chat prompt">+
+            style="background: #9333ea; border-color: #a855f7;" title="Attach anatomical & functional summary to AI chat prompt">+
             Attach to Prompt</button>
           <button class="secondary-btn" onclick="closeNeurosynthModal()">Close</button>
         </div>
@@ -861,6 +882,28 @@
       }
     }
 
+    let activeLocationTab = "fsl";
+
+    function switchLocationTab(tab) {
+      activeLocationTab = tab;
+      const btnFsl = document.getElementById("tab-btn-fsl");
+      const btnNs = document.getElementById("tab-btn-neurosynth");
+      const fslCont = document.getElementById("fsl-table-container");
+      const nsCont = document.getElementById("neurosynth-table-container");
+
+      if (tab === "fsl") {
+        if (btnFsl) btnFsl.classList.add("active");
+        if (btnNs) btnNs.classList.remove("active");
+        if (fslCont) fslCont.style.display = "block";
+        if (nsCont) nsCont.style.display = "none";
+      } else {
+        if (btnNs) btnNs.classList.add("active");
+        if (btnFsl) btnFsl.classList.remove("active");
+        if (nsCont) nsCont.style.display = "block";
+        if (fslCont) fslCont.style.display = "none";
+      }
+    }
+
     async function queryNeurosynthWhatsThis() {
       if (!latestCoords || latestCoords.length < 3) {
         alert("Please click on the 3D volume or slice to select a coordinate first.");
@@ -873,20 +916,25 @@
       const loadingDiv = document.getElementById("neurosynth-loading");
       const errorDiv = document.getElementById("neurosynth-error");
       const errorMsg = document.getElementById("neurosynth-error-msg");
-      const table = document.getElementById("neurosynth-table");
-      const tbody = document.getElementById("neurosynth-table-body");
+      const fslTable = document.getElementById("fsl-table");
+      const fslTbody = document.getElementById("fsl-table-body");
+      const nsTable = document.getElementById("neurosynth-table");
+      const nsTbody = document.getElementById("neurosynth-table-body");
+      const btnFsl = document.getElementById("tab-btn-fsl");
+      const btnNs = document.getElementById("tab-btn-neurosynth");
 
       if (coordsPill) coordsPill.textContent = `MNI: (${x}, ${y}, ${z})`;
       if (modal) modal.style.display = "flex";
       if (loadingDiv) loadingDiv.style.display = "block";
       if (errorDiv) errorDiv.style.display = "none";
-      if (table) table.style.display = "none";
+      if (fslTable) fslTable.style.display = "none";
+      if (nsTable) nsTable.style.display = "none";
       latestNeurosynthResult = null;
 
       try {
         const resp = await fetch(`/api/neurosynth?x=${x}&y=${y}&z=${z}&radius=6&top=10`);
         if (!resp.ok) {
-          throw new Error(`Neurosynth service returned HTTP ${resp.status}`);
+          throw new Error(`Location query service returned HTTP ${resp.status}`);
         }
         const data = await resp.json();
         latestNeurosynthResult = data;
@@ -894,23 +942,54 @@
         if (loadingDiv) loadingDiv.style.display = "none";
 
         if (sourceBadge) {
-          if (data.source === "cache") {
-            sourceBadge.className = "neurosynth-badge neurosynth-badge-cache";
-            sourceBadge.textContent = "cached";
-          } else if (data.source && data.source.startsWith("offline")) {
-            sourceBadge.className = "neurosynth-badge neurosynth-badge-fallback";
-            sourceBadge.textContent = "landmark fallback";
-          } else {
-            sourceBadge.className = "neurosynth-badge neurosynth-badge-online";
-            sourceBadge.textContent = "online";
-          }
+          sourceBadge.className = "neurosynth-badge neurosynth-badge-online";
+          sourceBadge.textContent = "offline fsl + neurosynth";
         }
 
-        if (tbody) {
-          tbody.innerHTML = "";
-          const assocs = data.associations || [];
+        // 1. Render FSL Anatomy Table
+        const fslHits = (data.fsl_anatomy && data.fsl_anatomy.hits) ? data.fsl_anatomy.hits : [];
+        if (btnFsl) btnFsl.textContent = `🏛️ FSL Anatomy (${fslHits.length})`;
+        if (fslTbody) {
+          fslTbody.innerHTML = "";
+          if (fslHits.length === 0) {
+            fslTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 24px; color: #94a3b8;">No matching FSL atlas region found at this coordinate.</td></tr>`;
+          } else {
+            fslHits.forEach((hit) => {
+              const tr = document.createElement("tr");
+              tr.className = "fs-row";
+              const isProb = hit.atlas_type === "Probabilistic";
+              const probVal = isProb ? `${Math.round(hit.probability)}%` : "Discrete";
+              const probPct = isProb ? Math.min(100, Math.max(0, Math.round(hit.probability))) : 100;
+
+              tr.innerHTML = `
+                <td style="font-weight: 600; color: #cbd5e1; font-size: 0.74rem;">${hit.atlas_name}</td>
+                <td style="font-weight: 600; color: #f1f5f9;">${hit.region_name}</td>
+                <td style="text-align: right;">
+                  ${isProb ? `
+                    <div class="prob-bar-container" style="justify-content: flex-end;">
+                      <div class="prob-bar-track" style="max-width: 60px;">
+                        <div class="prob-bar-fill" style="width: ${probPct}%;"></div>
+                      </div>
+                      <span class="neurosynth-score" style="min-width: 32px;">${probVal}</span>
+                    </div>
+                  ` : `
+                    <span class="badge-volume" style="background: #334155; color: #38bdf8;">Discrete</span>
+                  `}
+                </td>
+              `;
+              fslTbody.appendChild(tr);
+            });
+          }
+        }
+        if (fslTable) fslTable.style.display = "table";
+
+        // 2. Render Neurosynth Functional Table
+        const assocs = data.associations || [];
+        if (btnNs) btnNs.textContent = `🔮 Neurosynth (${assocs.length})`;
+        if (nsTbody) {
+          nsTbody.innerHTML = "";
           if (assocs.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 24px; color: #94a3b8;">No strong functional associations found within 6mm radius.</td></tr>`;
+            nsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 24px; color: #94a3b8;">No strong functional associations found within 6mm radius.</td></tr>`;
           } else {
             assocs.forEach((item, idx) => {
               const tr = document.createElement("tr");
@@ -932,11 +1011,14 @@
                   </div>
                 </td>
               `;
-              tbody.appendChild(tr);
+              nsTbody.appendChild(tr);
             });
           }
         }
-        if (table) table.style.display = "table";
+        if (nsTable) nsTable.style.display = "table";
+
+        // Default to FSL tab if hits found, otherwise Neurosynth
+        switchLocationTab(fslHits.length > 0 ? "fsl" : "neurosynth");
       } catch (err) {
         if (loadingDiv) loadingDiv.style.display = "none";
         if (errorDiv) {
@@ -960,19 +1042,37 @@
     function attachNeurosynthToPrompt() {
       if (!latestNeurosynthResult) return;
       const r = latestNeurosynthResult;
-      const topTerms = (r.associations || []).slice(0, 5).map(a => `${a.term} (z=${typeof a.z_score === "number" ? a.z_score.toFixed(1) : a.z_score})`).join(", ");
-      const summaryText = ` MNI [${r.x}, ${r.y}, ${r.z}] (Neurosynth: ${topTerms || "No strong associations"}) `;
+
+      const fslHits = (r.fsl_anatomy && r.fsl_anatomy.hits) ? r.fsl_anatomy.hits : [];
+      const fslTerms = fslHits.slice(0, 3).map(h => {
+        return h.atlas_type === "Probabilistic"
+          ? `${h.region_name} [${Math.round(h.probability)}% ${h.atlas_key}]`
+          : `${h.region_name} (${h.atlas_key})`;
+      }).join(", ");
+
+      const nsTerms = (r.associations || []).slice(0, 4).map(a => {
+        return `${a.term} (z=${typeof a.z_score === "number" ? a.z_score.toFixed(1) : a.z_score})`;
+      }).join(", ");
+
+      let summaryText = ` MNI [${r.x}, ${r.y}, ${r.z}] `;
+      if (fslTerms && nsTerms) {
+        summaryText += `(FSL Anatomy: ${fslTerms}; Neurosynth: ${nsTerms}) `;
+      } else if (fslTerms) {
+        summaryText += `(FSL Anatomy: ${fslTerms}) `;
+      } else if (nsTerms) {
+        summaryText += `(Neurosynth: ${nsTerms}) `;
+      }
 
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({
           type: "NEURI_ATTACH_COORDS",
           text: summaryText,
           coords: [r.x, r.y, r.z],
-          neurosynth: r
+          location_data: r
         }, "*");
       } else {
         navigator.clipboard.writeText(summaryText).then(() => {
-          alert(`Copied Neurosynth summary to clipboard:\n${summaryText}`);
+          alert(`Copied Location summary to clipboard:\n${summaryText}`);
         }).catch(() => { });
       }
       closeNeurosynthModal();
@@ -982,17 +1082,39 @@
       if (!latestNeurosynthResult) return;
       const r = latestNeurosynthResult;
       const lines = [
-        `### Neurosynth Associations for MNI [${r.x}, ${r.y}, ${r.z}] (radius ${r.radius}mm)`,
-        `*Source: ${r.source}*`,
+        `### Location Query for MNI [${r.x}, ${r.y}, ${r.z}]`,
         "",
-        "| Rank | Term | Z-Score | Posterior Prob |",
-        "| :---: | :--- | :---: | :---: |"
+        "#### FSL Anatomical Atlases",
+        "| Atlas | Region / Tract Name | Probability | Type |",
+        "| :--- | :--- | :---: | :---: |"
       ];
-      (r.associations || []).forEach((a, i) => {
-        const z = typeof a.z_score === "number" ? a.z_score.toFixed(2) : a.z_score;
-        const p = typeof a.posterior_prob === "number" ? a.posterior_prob.toFixed(2) : a.posterior_prob;
-        lines.push(`| ${i + 1} | ${a.term} | ${z} | ${p} |`);
-      });
+
+      const fslHits = (r.fsl_anatomy && r.fsl_anatomy.hits) ? r.fsl_anatomy.hits : [];
+      if (fslHits.length === 0) {
+        lines.push("| *(No matching FSL atlas region found)* | -- | -- | -- |");
+      } else {
+        fslHits.forEach(h => {
+          const probStr = h.atlas_type === "Probabilistic" ? `${Math.round(h.probability)}%` : "Discrete";
+          lines.push(`| **${h.atlas_name}** | ${h.region_name} | ${probStr} | ${h.atlas_type} |`);
+        });
+      }
+
+      lines.push("");
+      lines.push("#### Neurosynth Functional Associations (Radius 6mm)");
+      lines.push("| Rank | Functional Term | Z-Score | Posterior Prob |");
+      lines.push("| :---: | :--- | :---: | :---: |");
+
+      const nsAssocs = r.associations || [];
+      if (nsAssocs.length === 0) {
+        lines.push("| *(No significant functional terms found)* | -- | -- | -- |");
+      } else {
+        nsAssocs.forEach((a, i) => {
+          const z = typeof a.z_score === "number" ? a.z_score.toFixed(2) : a.z_score;
+          const p = typeof a.posterior_prob === "number" ? a.posterior_prob.toFixed(2) : a.posterior_prob;
+          lines.push(`| ${i + 1} | ${a.term} | ${z} | ${p} |`);
+        });
+      }
+
       const md = lines.join("\n");
       navigator.clipboard.writeText(md).then(() => {
         const btn = document.getElementById("btn-neurosynth-copy");
