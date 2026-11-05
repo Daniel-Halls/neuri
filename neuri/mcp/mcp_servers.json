@@ -1,5 +1,13 @@
 {
   "mcpServers": {
+    "fsl_atlas": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "neuri.mcp_servers.mcp_fsl_atlas"
+      ],
+      "description": "Offline FSL MNI152 anatomical & white-matter atlas server (20 human atlases, coordinate-to-region and region-to-coordinate lookup)."
+    },
     "neuri_docs": {
       "command": "python3",
       "args": [

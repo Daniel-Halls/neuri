@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +11,7 @@
       margin: 0;
       padding: 0;
     }
+
     body {
       background-color: #0b0f17;
       color: #f1f5f9;
@@ -19,6 +21,7 @@
       flex-direction: column;
       height: 100vh;
     }
+
     header {
       background-color: #111827;
       padding: 8px 12px;
@@ -31,12 +34,14 @@
       flex-wrap: wrap;
       row-gap: 8px;
     }
+
     .brand {
       display: flex;
       align-items: center;
       gap: 8px;
       min-width: 140px;
     }
+
     .brand h1 {
       font-size: 0.95rem;
       font-weight: 700;
@@ -46,6 +51,7 @@
       align-items: center;
       gap: 6px;
     }
+
     .brand span {
       font-size: 0.75rem;
       color: #94a3b8;
@@ -54,12 +60,14 @@
       text-overflow: ellipsis;
       max-width: 180px;
     }
+
     .controls {
       display: flex;
       align-items: center;
       gap: 6px;
       flex-wrap: wrap;
     }
+
     .file-action-group {
       display: flex;
       align-items: center;
@@ -69,6 +77,7 @@
       border-radius: 6px;
       border: 1px solid #334155;
     }
+
     .host-box {
       display: flex;
       align-items: center;
@@ -77,6 +86,7 @@
       color: #94a3b8;
       padding-left: 4px;
     }
+
     .host-select {
       background: #0b0f17;
       color: #38bdf8;
@@ -89,9 +99,12 @@
       outline: none;
       cursor: pointer;
     }
-    .host-select:hover, .host-select:focus {
+
+    .host-select:hover,
+    .host-select:focus {
       border-color: #38bdf8;
     }
+
     .primary-btn {
       background: #0284c7;
       color: #ffffff;
@@ -106,10 +119,12 @@
       gap: 6px;
       transition: all 0.15s ease;
     }
+
     .primary-btn:hover {
       background: #0369a1;
       box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
     }
+
     .primary-btn:disabled {
       background: #334155;
       color: #64748b;
@@ -117,6 +132,7 @@
       cursor: not-allowed;
       box-shadow: none;
     }
+
     .secondary-btn {
       background: #1e293b;
       color: #cbd5e1;
@@ -131,14 +147,17 @@
       gap: 6px;
       transition: all 0.15s ease;
     }
+
     .secondary-btn:hover {
       background: #334155;
       color: #ffffff;
     }
+
     .secondary-btn:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
+
     .segmented-group {
       display: flex;
       background: #1e293b;
@@ -146,6 +165,7 @@
       border-radius: 6px;
       border: 1px solid #334155;
     }
+
     button {
       background: transparent;
       color: #cbd5e1;
@@ -157,16 +177,19 @@
       cursor: pointer;
       transition: all 0.15s ease;
     }
+
     button:hover {
       color: #ffffff;
       background: #334155;
     }
+
     button.active {
       background: #0284c7;
       color: #ffffff;
       font-weight: 600;
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     }
+
     .layer-controls {
       display: flex;
       align-items: center;
@@ -178,6 +201,7 @@
       font-size: 0.75rem;
       color: #94a3b8;
     }
+
     .layer-controls select {
       background: #0b0f17;
       color: #f1f5f9;
@@ -187,10 +211,12 @@
       font-size: 0.75rem;
       outline: none;
     }
+
     .layer-controls input[type="range"] {
       width: 70px;
       accent-color: #38bdf8;
     }
+
     .status-panel {
       font-size: 0.78rem;
       color: #cbd5e1;
@@ -199,27 +225,32 @@
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
       font-variant-numeric: tabular-nums;
     }
+
     .coord-pill {
       background: #1e293b;
       padding: 4px 8px;
       border-radius: 4px;
       border: 1px solid #334155;
     }
+
     #canvas-container {
       flex: 1;
       position: relative;
       width: 100%;
       height: 100%;
     }
+
     #canvas-container.drag-hover {
       outline: 3px dashed #38bdf8;
       outline-offset: -8px;
     }
+
     canvas {
       width: 100%;
       height: 100%;
       display: block;
     }
+
     #hud {
       position: absolute;
       bottom: 12px;
@@ -235,6 +266,7 @@
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
       font-variant-numeric: tabular-nums;
     }
+
     #controls-hint {
       position: absolute;
       bottom: 12px;
@@ -264,6 +296,7 @@
       justify-content: center;
       padding: 20px;
     }
+
     .modal-dialog {
       background: #111827;
       border: 1px solid #334155;
@@ -276,6 +309,7 @@
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
       overflow: hidden;
     }
+
     .modal-header {
       padding: 12px 18px;
       background: #1e293b;
@@ -284,6 +318,7 @@
       align-items: center;
       justify-content: space-between;
     }
+
     .modal-title h3 {
       font-size: 0.95rem;
       font-weight: 700;
@@ -292,10 +327,12 @@
       align-items: center;
       gap: 8px;
     }
+
     .modal-subtitle {
       font-size: 0.72rem;
       color: #94a3b8;
     }
+
     .close-btn {
       background: transparent;
       border: none;
@@ -305,10 +342,12 @@
       padding: 4px 8px;
       border-radius: 4px;
     }
+
     .close-btn:hover {
       color: #ffffff;
       background: #334155;
     }
+
     .modal-toolbar {
       padding: 10px 18px;
       background: #0f172a;
@@ -319,11 +358,14 @@
       gap: 12px;
       flex-wrap: wrap;
     }
-    .quick-nav, .system-actions {
+
+    .quick-nav,
+    .system-actions {
       display: flex;
       align-items: center;
       gap: 6px;
     }
+
     .path-bar-container {
       padding: 8px 18px;
       background: #111827;
@@ -332,11 +374,13 @@
       align-items: center;
       gap: 8px;
     }
+
     .path-label {
       font-size: 0.75rem;
       color: #94a3b8;
       font-weight: 600;
     }
+
     #fs-current-path-input {
       flex: 1;
       background: #0b0f17;
@@ -348,9 +392,11 @@
       padding: 5px 8px;
       outline: none;
     }
+
     #fs-current-path-input:focus {
       border-color: #38bdf8;
     }
+
     .filter-bar {
       padding: 8px 18px;
       background: #111827;
@@ -360,6 +406,7 @@
       justify-content: space-between;
       gap: 12px;
     }
+
     #fs-filter-input {
       flex: 1;
       background: #0b0f17;
@@ -370,9 +417,11 @@
       padding: 5px 8px;
       outline: none;
     }
+
     #fs-filter-input:focus {
       border-color: #38bdf8;
     }
+
     .checkbox-label {
       font-size: 0.75rem;
       color: #94a3b8;
@@ -382,6 +431,7 @@
       cursor: pointer;
       white-space: nowrap;
     }
+
     .fs-list-container {
       flex: 1;
       overflow-y: auto;
@@ -389,11 +439,13 @@
       max-height: 400px;
       background: #0b0f17;
     }
+
     .fs-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.78rem;
     }
+
     .fs-table th {
       position: sticky;
       top: 0;
@@ -408,6 +460,7 @@
       letter-spacing: 0.05em;
       z-index: 2;
     }
+
     .fs-table td {
       padding: 7px 12px;
       border-bottom: 1px solid #1e293b;
@@ -416,18 +469,22 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
     .fs-row {
       cursor: pointer;
       transition: background 0.1s ease;
       user-select: none;
     }
+
     .fs-row:hover {
       background: #1e293b;
     }
+
     .fs-row.selected {
       background: #0c4a6e !important;
       color: #ffffff;
     }
+
     .badge-volume {
       background: #0284c7;
       color: #ffffff;
@@ -438,6 +495,7 @@
       letter-spacing: 0.03em;
       margin-left: 6px;
     }
+
     .badge-dir {
       background: #334155;
       color: #94a3b8;
@@ -445,12 +503,14 @@
       padding: 2px 6px;
       border-radius: 3px;
     }
+
     .fs-empty-state {
       padding: 50px 20px;
       text-align: center;
       color: #64748b;
       font-size: 0.82rem;
     }
+
     .modal-footer {
       padding: 12px 18px;
       background: #111827;
@@ -460,6 +520,7 @@
       justify-content: space-between;
       gap: 12px;
     }
+
     .selected-file-info {
       font-size: 0.75rem;
       color: #94a3b8;
@@ -469,14 +530,88 @@
       white-space: nowrap;
       max-width: 480px;
     }
+
     .modal-footer-btns {
       display: flex;
       align-items: center;
       gap: 8px;
     }
+
+    /* Neurosynth Modal Styles */
+    .neurosynth-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .neurosynth-badge-cache {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .neurosynth-badge-online {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .neurosynth-badge-fallback {
+      background: rgba(234, 179, 8, 0.15);
+      color: #facc15;
+      border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+
+    .neurosynth-score {
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+      font-weight: 700;
+      color: #c084fc;
+    }
+
+    .prob-bar-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prob-bar-track {
+      flex: 1;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+      min-width: 60px;
+    }
+
+    .prob-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #818cf8, #c084fc);
+      border-radius: 3px;
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #c084fc;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@niivue/niivue@0.69.0/dist/niivue.umd.js"></script>
 </head>
+
 <body>
   <header>
     <div class="brand">
@@ -485,19 +620,23 @@
     </div>
     <div class="controls">
       <div class="file-action-group">
-        <div class="host-box" title="Select target machine (localhost or remote SSH host) to browse for neuroimaging volumes">
+        <div class="host-box"
+          title="Select target machine (localhost or remote SSH host) to browse for neuroimaging volumes">
           <span>🖥 Host:</span>
           <select id="host-select" class="host-select" onchange="onHostSelectChange(this.value)">
             <option value="localhost">localhost</option>
           </select>
         </div>
-        <button id="btn-open-volume" class="primary-btn" onclick="openFileExplorerModal()" title="Open file explorer to browse volumes on the selected host">
+        <button id="btn-open-volume" class="primary-btn" onclick="openFileExplorerModal()"
+          title="Open file explorer to browse volumes on the selected host">
           📂 Open Volume
         </button>
-        <button id="btn-demo-volume" class="secondary-btn" onclick="loadDemoVolume()" title="Load standard MNI152 template volume">
-          🧠 Demo
+        <button id="btn-demo-volume" class="secondary-btn" onclick="loadDemoVolume()"
+          title="Load standard MNI152 template volume">
+          MNI Template
         </button>
-        <input type="file" id="browser-file-picker" style="display: none;" accept=".nii,.nii.gz,.mgh,.mgz,.dcm,.dim,.img,.hdr" onchange="handleBrowserFileSelected(event)">
+        <input type="file" id="browser-file-picker" style="display: none;"
+          accept=".nii,.nii.gz,.mgh,.mgz,.dcm,.dim,.img,.hdr" onchange="handleBrowserFileSelected(event)">
       </div>
 
       <div class="segmented-group">
@@ -525,21 +664,17 @@
     <div class="status-panel">
       <span id="coords-mni" class="coord-pill">MNI: (0.0, 0.0, 0.0)</span>
       <span id="intensity-val" class="coord-pill">Val: --</span>
-      <button id="btn-attach-prompt" class="secondary-btn" style="padding: 2px 8px; font-size: 0.72rem; color: #38bdf8;" onclick="attachCoordsToStudioPrompt()" title="Attach current MNI coordinates to prompt">+ Attach</button>
+      <button id="btn-attach-prompt" class="secondary-btn" style="padding: 2px 8px; font-size: 0.72rem; color: #38bdf8;"
+        onclick="attachCoordsToStudioPrompt()" title="Attach current MNI coordinates to prompt">+ Attach</button>
+      <button id="btn-whats-this" class="secondary-btn"
+        style="padding: 2px 8px; font-size: 0.72rem; color: #a956fd; border-color: rgba(155, 62, 248, 0.668); margin-left: 4px;"
+        onclick="queryNeurosynthWhatsThis()" title="What's this? Query top 10 Neurosynth functional associations">Query
+        Location</button>
     </div>
   </header>
 
   <div id="canvas-container">
     <canvas id="gl"></canvas>
-    <div id="hud">
-      <div><strong>Host:</strong> <span id="hud-host">localhost</span></div>
-      <div><strong>Scene:</strong> <span id="hud-scene-id">None</span></div>
-      <div><strong>Volumes:</strong> <span id="hud-layers">0</span></div>
-      <div><strong>Crosshair:</strong> Active</div>
-    </div>
-    <div id="controls-hint">
-      Drag & Drop volume │ Drag: slice │ Right-click: zoom │ Scroll: cycle │ Space: crosshair
-    </div>
   </div>
 
   <!-- Unified Local & Remote SSH File Explorer Modal -->
@@ -548,7 +683,8 @@
       <div class="modal-header">
         <div class="modal-title">
           <h3 id="modal-explorer-heading">🗂 File Explorer — localhost</h3>
-          <span id="modal-explorer-subtitle" class="modal-subtitle">Browse and select neuroimaging volumes on localhost</span>
+          <span id="modal-explorer-subtitle" class="modal-subtitle">Browse and select neuroimaging volumes on
+            localhost</span>
         </div>
         <button class="close-btn" onclick="closeFileExplorerModal()" title="Close">✕</button>
       </div>
@@ -561,24 +697,30 @@
               <option value="localhost">localhost</option>
             </select>
           </div>
-          <button class="secondary-btn" onclick="navigateDir('workspace')" title="Jump to Workspace directory">💼 Workspace</button>
+          <button class="secondary-btn" onclick="navigateDir('workspace')" title="Jump to Workspace directory">💼
+            Workspace</button>
           <button class="secondary-btn" onclick="navigateDir('home')" title="Jump to Home directory">🏠 Home</button>
           <button id="btn-nav-up" class="secondary-btn" onclick="navigateUp()" title="Go up one folder">⬆ Up</button>
         </div>
         <div class="system-actions">
-          <button id="btn-system-dialog" class="secondary-btn" onclick="openSystemFileDialog()" title="Launch native OS file chooser (localhost only)">🖥 System Dialog</button>
-          <button class="secondary-btn" onclick="triggerBrowserFilePicker()" title="Upload a file directly from your local browser">📥 Local Upload</button>
+          <button id="btn-system-dialog" class="secondary-btn" onclick="openSystemFileDialog()"
+            title="Launch native OS file chooser (localhost only)">🖥 System Dialog</button>
+          <button class="secondary-btn" onclick="triggerBrowserFilePicker()"
+            title="Upload a file directly from your local browser">📥 Local Upload</button>
         </div>
       </div>
 
       <div class="path-bar-container">
         <span class="path-label">Path:</span>
-        <input type="text" id="fs-current-path-input" onkeydown="if(event.key==='Enter') navigateToCustomPath(this.value)" placeholder="/path/to/folder">
-        <button class="secondary-btn" onclick="navigateToCustomPath(document.getElementById('fs-current-path-input').value)">Go</button>
+        <input type="text" id="fs-current-path-input"
+          onkeydown="if(event.key==='Enter') navigateToCustomPath(this.value)" placeholder="/path/to/folder">
+        <button class="secondary-btn"
+          onclick="navigateToCustomPath(document.getElementById('fs-current-path-input').value)">Go</button>
       </div>
 
       <div class="filter-bar">
-        <input type="text" id="fs-filter-input" placeholder="🔍 Filter volumes & files (e.g. sub-01, .nii.gz)" oninput="filterEntries(this.value)">
+        <input type="text" id="fs-filter-input" placeholder="🔍 Filter volumes & files (e.g. sub-01, .nii.gz)"
+          oninput="filterEntries(this.value)">
         <label class="checkbox-label">
           <input type="checkbox" id="fs-show-all-checkbox" onchange="toggleShowAllFiles(this.checked)"> Show all files
         </label>
@@ -609,7 +751,98 @@
         </div>
         <div class="modal-footer-btns">
           <button class="secondary-btn" onclick="closeFileExplorerModal()">Cancel</button>
-          <button id="btn-confirm-open" class="primary-btn" onclick="confirmOpenSelectedFile()" disabled>Open Volume</button>
+          <button id="btn-confirm-open" class="primary-btn" onclick="confirmOpenSelectedFile()" disabled>Open
+            Volume</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Location Query Modal (FSL Atlases & Neurosynth) -->
+  <div id="neurosynth-modal" class="modal-backdrop" style="display: none;"
+    onclick="onNeurosynthModalBackdropClick(event)">
+    <div class="modal-dialog" style="max-width: 680px;">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(192, 132, 252, 0.25);">
+        <div class="modal-title">
+          <h3 style="color: #be7dffac;">
+            <span>📍 Location Query — Anatomy & Function</span>
+          </h3>
+          <span id="neurosynth-modal-subtitle" class="modal-subtitle">
+            Offline FSL Atlases (20 Human Parcellations) & Neurosynth Associations
+          </span>
+        </div>
+        <button class="close-btn" onclick="closeNeurosynthModal()" title="Close">✕</button>
+      </div>
+
+      <div class="modal-toolbar" style="background: #0d121c; border-bottom: 1px solid #1e293b; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem;">
+          <span style="color: #94a3b8;">Coordinates:</span>
+          <span id="neurosynth-coords-pill" class="coord-pill" style="color: #38bdf8;">MNI: (0, 0, 0)</span>
+          <span id="neurosynth-source-badge" class="neurosynth-badge neurosynth-badge-online"
+            style="margin-left: 6px;">offline fsl</span>
+        </div>
+        <div class="segmented-group" style="margin-left: auto;">
+          <button id="tab-btn-fsl" class="active" onclick="switchLocationTab('fsl')">🏛️ FSL Anatomy</button>
+          <button id="tab-btn-neurosynth" onclick="switchLocationTab('neurosynth')">🔮 Neurosynth</button>
+        </div>
+      </div>
+
+      <div class="fs-list-container" id="neurosynth-body" style="min-height: 240px; max-height: 400px; padding: 0;">
+        <div id="neurosynth-loading" style="display: none; padding: 40px 20px; text-align: center; color: #94a3b8;">
+          <div class="spinner" style="margin-bottom: 12px;"></div>
+          <div>Resolving FSL anatomical atlases and Neurosynth associations...</div>
+        </div>
+
+        <div id="neurosynth-error" style="display: none; padding: 30px 20px; text-align: center; color: #f87171;">
+          <div style="font-size: 1.1rem; margin-bottom: 6px;">⚠️ Query Error</div>
+          <div id="neurosynth-error-msg" style="font-size: 0.78rem; color: #cbd5e1;"></div>
+        </div>
+
+        <!-- FSL Anatomy Table Container -->
+        <div id="fsl-table-container">
+          <table class="fs-table" id="fsl-table" style="display: none;">
+            <thead>
+              <tr>
+                <th style="width: 32%;">FSL Atlas</th>
+                <th style="width: 44%;">Anatomical Structure / Tract</th>
+                <th style="width: 24%; text-align: right;">Probability / Type</th>
+              </tr>
+            </thead>
+            <tbody id="fsl-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Neurosynth Table Container -->
+        <div id="neurosynth-table-container" style="display: none;">
+          <table class="fs-table" id="neurosynth-table">
+            <thead>
+              <tr>
+                <th style="width: 8%; text-align: center;">#</th>
+                <th style="width: 46%;">Functional / Anatomical Term</th>
+                <th style="width: 22%; text-align: right;">Z-Score</th>
+                <th style="width: 24%;">Posterior Prob.</th>
+              </tr>
+            </thead>
+            <tbody id="neurosynth-table-body">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div style="font-size: 0.72rem; color: #64748b;">
+          Databases: <span style="color: #94a3b8;">FSL Atlases (Offline) • Neurosynth (14k studies)</span>
+        </div>
+        <div class="modal-footer-btns">
+          <button id="btn-neurosynth-copy" class="secondary-btn" onclick="copyNeurosynthMarkdown()"
+            title="Copy markdown summary table to clipboard">📋 Copy</button>
+          <button id="btn-neurosynth-attach" class="primary-btn" onclick="attachNeurosynthToPrompt()"
+            style="background: #9333ea; border-color: #a855f7;" title="Attach anatomical & functional summary to AI chat prompt">+
+            Attach to Prompt</button>
+          <button class="secondary-btn" onclick="closeNeurosynthModal()">Close</button>
         </div>
       </div>
     </div>
@@ -631,6 +864,7 @@
     let selectedFsEntry = null;
     let showAllFiles = false;
     let latestCoords = null;
+    let latestNeurosynthResult = null;
 
     function attachCoordsToStudioPrompt() {
       if (!latestCoords) return;
@@ -644,8 +878,254 @@
       } else {
         navigator.clipboard.writeText(coordText).then(() => {
           alert(`Copied ${coordText} to clipboard`);
-        }).catch(() => {});
+        }).catch(() => { });
       }
+    }
+
+    let activeLocationTab = "fsl";
+
+    function switchLocationTab(tab) {
+      activeLocationTab = tab;
+      const btnFsl = document.getElementById("tab-btn-fsl");
+      const btnNs = document.getElementById("tab-btn-neurosynth");
+      const fslCont = document.getElementById("fsl-table-container");
+      const nsCont = document.getElementById("neurosynth-table-container");
+
+      if (tab === "fsl") {
+        if (btnFsl) btnFsl.classList.add("active");
+        if (btnNs) btnNs.classList.remove("active");
+        if (fslCont) fslCont.style.display = "block";
+        if (nsCont) nsCont.style.display = "none";
+      } else {
+        if (btnNs) btnNs.classList.add("active");
+        if (btnFsl) btnFsl.classList.remove("active");
+        if (nsCont) nsCont.style.display = "block";
+        if (fslCont) fslCont.style.display = "none";
+      }
+    }
+
+    async function queryNeurosynthWhatsThis() {
+      if (!latestCoords || latestCoords.length < 3) {
+        alert("Please click on the 3D volume or slice to select a coordinate first.");
+        return;
+      }
+      const [x, y, z] = latestCoords;
+      const modal = document.getElementById("neurosynth-modal");
+      const coordsPill = document.getElementById("neurosynth-coords-pill");
+      const sourceBadge = document.getElementById("neurosynth-source-badge");
+      const loadingDiv = document.getElementById("neurosynth-loading");
+      const errorDiv = document.getElementById("neurosynth-error");
+      const errorMsg = document.getElementById("neurosynth-error-msg");
+      const fslTable = document.getElementById("fsl-table");
+      const fslTbody = document.getElementById("fsl-table-body");
+      const nsTable = document.getElementById("neurosynth-table");
+      const nsTbody = document.getElementById("neurosynth-table-body");
+      const btnFsl = document.getElementById("tab-btn-fsl");
+      const btnNs = document.getElementById("tab-btn-neurosynth");
+
+      if (coordsPill) coordsPill.textContent = `MNI: (${x}, ${y}, ${z})`;
+      if (modal) modal.style.display = "flex";
+      if (loadingDiv) loadingDiv.style.display = "block";
+      if (errorDiv) errorDiv.style.display = "none";
+      if (fslTable) fslTable.style.display = "none";
+      if (nsTable) nsTable.style.display = "none";
+      latestNeurosynthResult = null;
+
+      try {
+        const resp = await fetch(`/api/neurosynth?x=${x}&y=${y}&z=${z}&radius=6&top=10`);
+        if (!resp.ok) {
+          throw new Error(`Location query service returned HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        latestNeurosynthResult = data;
+
+        if (loadingDiv) loadingDiv.style.display = "none";
+
+        if (sourceBadge) {
+          sourceBadge.className = "neurosynth-badge neurosynth-badge-online";
+          sourceBadge.textContent = "offline fsl + neurosynth";
+        }
+
+        // 1. Render FSL Anatomy Table
+        const fslHits = (data.fsl_anatomy && data.fsl_anatomy.hits) ? data.fsl_anatomy.hits : [];
+        if (btnFsl) btnFsl.textContent = `🏛️ FSL Anatomy (${fslHits.length})`;
+        if (fslTbody) {
+          fslTbody.innerHTML = "";
+          if (fslHits.length === 0) {
+            fslTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 24px; color: #94a3b8;">No matching FSL atlas region found at this coordinate.</td></tr>`;
+          } else {
+            fslHits.forEach((hit) => {
+              const tr = document.createElement("tr");
+              tr.className = "fs-row";
+              const isProb = hit.atlas_type === "Probabilistic";
+              const probVal = isProb ? `${Math.round(hit.probability)}%` : "Discrete";
+              const probPct = isProb ? Math.min(100, Math.max(0, Math.round(hit.probability))) : 100;
+
+              tr.innerHTML = `
+                <td style="font-weight: 600; color: #cbd5e1; font-size: 0.74rem;">${hit.atlas_name}</td>
+                <td style="font-weight: 600; color: #f1f5f9;">${hit.region_name}</td>
+                <td style="text-align: right;">
+                  ${isProb ? `
+                    <div class="prob-bar-container" style="justify-content: flex-end;">
+                      <div class="prob-bar-track" style="max-width: 60px;">
+                        <div class="prob-bar-fill" style="width: ${probPct}%;"></div>
+                      </div>
+                      <span class="neurosynth-score" style="min-width: 32px;">${probVal}</span>
+                    </div>
+                  ` : `
+                    <span class="badge-volume" style="background: #334155; color: #38bdf8;">Discrete</span>
+                  `}
+                </td>
+              `;
+              fslTbody.appendChild(tr);
+            });
+          }
+        }
+        if (fslTable) fslTable.style.display = "table";
+
+        // 2. Render Neurosynth Functional Table
+        const assocs = data.associations || [];
+        if (btnNs) btnNs.textContent = `🔮 Neurosynth (${assocs.length})`;
+        if (nsTbody) {
+          nsTbody.innerHTML = "";
+          if (assocs.length === 0) {
+            nsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 24px; color: #94a3b8;">No strong functional associations found within 6mm radius.</td></tr>`;
+          } else {
+            assocs.forEach((item, idx) => {
+              const tr = document.createElement("tr");
+              tr.className = "fs-row";
+              const zVal = typeof item.z_score === "number" ? item.z_score.toFixed(2) : item.z_score;
+              const probVal = typeof item.posterior_prob === "number" ? item.posterior_prob.toFixed(2) : (item.posterior_prob || "0.00");
+              const probPct = Math.min(100, Math.max(0, Math.round(parseFloat(probVal) * 100)));
+
+              tr.innerHTML = `
+                <td style="text-align: center; color: #64748b; font-weight: 600;">${idx + 1}</td>
+                <td style="font-weight: 600; color: #f1f5f9;">${item.term}</td>
+                <td style="text-align: right;"><span class="neurosynth-score">${zVal}</span></td>
+                <td>
+                  <div class="prob-bar-container">
+                    <div class="prob-bar-track">
+                      <div class="prob-bar-fill" style="width: ${probPct}%;"></div>
+                    </div>
+                    <span style="font-size: 0.72rem; color: #94a3b8; font-family: monospace;">${probVal}</span>
+                  </div>
+                </td>
+              `;
+              nsTbody.appendChild(tr);
+            });
+          }
+        }
+        if (nsTable) nsTable.style.display = "table";
+
+        // Default to FSL tab if hits found, otherwise Neurosynth
+        switchLocationTab(fslHits.length > 0 ? "fsl" : "neurosynth");
+      } catch (err) {
+        if (loadingDiv) loadingDiv.style.display = "none";
+        if (errorDiv) {
+          errorDiv.style.display = "block";
+          if (errorMsg) errorMsg.textContent = err.message || String(err);
+        }
+      }
+    }
+
+    function closeNeurosynthModal() {
+      const modal = document.getElementById("neurosynth-modal");
+      if (modal) modal.style.display = "none";
+    }
+
+    function onNeurosynthModalBackdropClick(event) {
+      if (event.target.id === "neurosynth-modal") {
+        closeNeurosynthModal();
+      }
+    }
+
+    function attachNeurosynthToPrompt() {
+      if (!latestNeurosynthResult) return;
+      const r = latestNeurosynthResult;
+
+      const fslHits = (r.fsl_anatomy && r.fsl_anatomy.hits) ? r.fsl_anatomy.hits : [];
+      const fslTerms = fslHits.slice(0, 3).map(h => {
+        return h.atlas_type === "Probabilistic"
+          ? `${h.region_name} [${Math.round(h.probability)}% ${h.atlas_key}]`
+          : `${h.region_name} (${h.atlas_key})`;
+      }).join(", ");
+
+      const nsTerms = (r.associations || []).slice(0, 4).map(a => {
+        return `${a.term} (z=${typeof a.z_score === "number" ? a.z_score.toFixed(1) : a.z_score})`;
+      }).join(", ");
+
+      let summaryText = ` MNI [${r.x}, ${r.y}, ${r.z}] `;
+      if (fslTerms && nsTerms) {
+        summaryText += `(FSL Anatomy: ${fslTerms}; Neurosynth: ${nsTerms}) `;
+      } else if (fslTerms) {
+        summaryText += `(FSL Anatomy: ${fslTerms}) `;
+      } else if (nsTerms) {
+        summaryText += `(Neurosynth: ${nsTerms}) `;
+      }
+
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: "NEURI_ATTACH_COORDS",
+          text: summaryText,
+          coords: [r.x, r.y, r.z],
+          location_data: r
+        }, "*");
+      } else {
+        navigator.clipboard.writeText(summaryText).then(() => {
+          alert(`Copied Location summary to clipboard:\n${summaryText}`);
+        }).catch(() => { });
+      }
+      closeNeurosynthModal();
+    }
+
+    function copyNeurosynthMarkdown() {
+      if (!latestNeurosynthResult) return;
+      const r = latestNeurosynthResult;
+      const lines = [
+        `### Location Query for MNI [${r.x}, ${r.y}, ${r.z}]`,
+        "",
+        "#### FSL Anatomical Atlases",
+        "| Atlas | Region / Tract Name | Probability | Type |",
+        "| :--- | :--- | :---: | :---: |"
+      ];
+
+      const fslHits = (r.fsl_anatomy && r.fsl_anatomy.hits) ? r.fsl_anatomy.hits : [];
+      if (fslHits.length === 0) {
+        lines.push("| *(No matching FSL atlas region found)* | -- | -- | -- |");
+      } else {
+        fslHits.forEach(h => {
+          const probStr = h.atlas_type === "Probabilistic" ? `${Math.round(h.probability)}%` : "Discrete";
+          lines.push(`| **${h.atlas_name}** | ${h.region_name} | ${probStr} | ${h.atlas_type} |`);
+        });
+      }
+
+      lines.push("");
+      lines.push("#### Neurosynth Functional Associations (Radius 6mm)");
+      lines.push("| Rank | Functional Term | Z-Score | Posterior Prob |");
+      lines.push("| :---: | :--- | :---: | :---: |");
+
+      const nsAssocs = r.associations || [];
+      if (nsAssocs.length === 0) {
+        lines.push("| *(No significant functional terms found)* | -- | -- | -- |");
+      } else {
+        nsAssocs.forEach((a, i) => {
+          const z = typeof a.z_score === "number" ? a.z_score.toFixed(2) : a.z_score;
+          const p = typeof a.posterior_prob === "number" ? a.posterior_prob.toFixed(2) : a.posterior_prob;
+          lines.push(`| ${i + 1} | ${a.term} | ${z} | ${p} |`);
+        });
+      }
+
+      const md = lines.join("\n");
+      navigator.clipboard.writeText(md).then(() => {
+        const btn = document.getElementById("btn-neurosynth-copy");
+        if (btn) {
+          const old = btn.textContent;
+          btn.textContent = "✓ Copied!";
+          setTimeout(() => { btn.textContent = old; }, 1800);
+        }
+      }).catch(err => {
+        alert("Failed to copy markdown: " + err);
+      });
     }
 
     async function loadDemoVolume() {
@@ -1250,6 +1730,10 @@
         if (modal && modal.style.display !== "none") {
           closeFileExplorerModal();
         }
+        const nsModal = document.getElementById("neurosynth-modal");
+        if (nsModal && nsModal.style.display !== "none") {
+          closeNeurosynthModal();
+        }
       }
     });
 
@@ -1276,4 +1760,5 @@
     window.addEventListener("DOMContentLoaded", initNiiVue);
   </script>
 </body>
+
 </html>

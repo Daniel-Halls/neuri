@@ -34,6 +34,16 @@ You have direct access to Neuri's neuroimaging documentation database (`docs.db`
    - You **MUST NOT** invoke web search or academic literature search tools (`scholar`, `paper-search`, PubMed, CrossRef) and **MUST NOT** attach academic citations when answering software command or API queries.
    - Quote exact verified flag names, types, and defaults from the retrieved database records.
 
+## MNI Coordinates & Brain Atlas Grounding (`fsl_atlas`)
+
+Neuri maintains a deterministic offline database (`fsl_atlases.db`) of **20 human FSL MNI152 brain atlases** (Harvard-Oxford Cortical/Subcortical, Juelich, Cerebellum, Talairach, JHU-tracts, XTRACT, etc.) requiring zero FSL installation:
+1. **Mandatory Coordinate Grounding**: Whenever the user provides MNI coordinates (e.g. `MNI [x, y, z]`), asks what brain structure is at a coordinate, or attaches coordinates from the 3D viewer:
+   - **Directly Query `fsl_atlas`**: Call `query_mni_coordinate(x, y, z, include_neurosynth=True)` via the `fsl_atlas` MCP server (or fallback CLI `python scripts/query_fsl_atlas.py <X> <Y> <Z>`).
+   - **Never Estimate Anatomy from Memory**: Always cite the exact matching labels and probability percentages from Harvard-Oxford, Juelich, and white-matter tract atlases.
+2. **Deterministic Region ROI Centers**: When the user requests the stereotactic coordinates of a brain structure or wants to place a seed ROI:
+   - **Search FSL Region**: Call `search_fsl_brain_region(query="<name>")` via `fsl_atlas` (or CLI `python scripts/query_fsl_atlas.py --search "<name>"`).
+   - Report the official FSL center-of-gravity `(cog_x, cog_y, cog_z)` in MNI millimeters.
+
 ## Empirical Research & Academic Writing Rules
 
 These research and citation rules apply **ONLY** to academic literature synthesis, manuscript drafting, and empirical scientific claims (such as biological findings, brain mechanisms, or theoretical hypotheses). They do **NOT** apply to CLI commands, code, or pipeline documentation.

@@ -98,6 +98,22 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             req_path: str | None = path_list[0] if path_list else None
             req_host: str = host_list[0] if host_list else "localhost"
             self._serve_fs_list(req_path, req_host)
+        elif path == "/api/neurosynth":
+            query_params = parse_qs(parsed_url.query)
+            x_val = query_params.get("x", ["0.0"])[0]
+            y_val = query_params.get("y", ["0.0"])[0]
+            z_val = query_params.get("z", ["0.0"])[0]
+            radius_val = query_params.get("radius", ["6"])[0]
+            top_val = query_params.get("top", ["10"])[0]
+            self._serve_neurosynth(x_val, y_val, z_val, radius_val, top_val)
+        elif path == "/api/fsl-atlas":
+            query_params = parse_qs(parsed_url.query)
+            x_val = query_params.get("x", ["0.0"])[0]
+            y_val = query_params.get("y", ["0.0"])[0]
+            z_val = query_params.get("z", ["0.0"])[0]
+            min_prob_val = query_params.get("min_prob", ["5.0"])[0]
+            atlas_val = query_params.get("atlas", [])
+            self._serve_fsl_atlas(x_val, y_val, z_val, min_prob_val, atlas_val)
         else:
             self.send_error(404, "Not Found")
 
@@ -309,6 +325,113 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         hosts_info: dict[str, Any] = explorer.get_available_hosts()
         payload_bytes: bytes = json.dumps(hosts_info).encode("utf-8")
         self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload_bytes)))
+        self.end_headers()
+        self.wfile.write(payload_bytes)
+
+    def _serve_neurosynth(
+        self,
+        x_str: str,
+        y_str: str,
+        z_str: str,
+        radius_str: str = "6",
+        top_str: str = "10",
+    ) -> None:
+        """Serve JSON decoding top functional associations from Neurosynth.
+
+        Parameters
+        ------------
+        x_str: str
+            MNI X coordinate string.
+        y_str: str
+            MNI Y coordinate string.
+        z_str: str
+            MNI Z coordinate string.
+        radius_str: str
+            Sphere radius string. Defaults to "6".
+        top_str: str
+            Top associations count string. Defaults to "10".
+
+        Returns
+        --------
+            None: NoneType object
+                Sends JSON Neurosynth lookup response.
+        """
+        from neuri.viewer.fsl_atlas import query_fsl_coordinates
+        from neuri.viewer.neurosynth import query_neurosynth_coordinates
+
+        try:
+            x_val: float = float(x_str)
+            y_val: float = float(y_str)
+            z_val: float = float(z_str)
+            rad_val: int = int(radius_str)
+            top_val: int = int(top_str)
+        except (ValueError, TypeError):
+            self.send_error(400, "Invalid coordinate, radius, or top parameter.")
+            return
+
+        ns_result = query_neurosynth_coordinates(
+            x=x_val, y=y_val, z=z_val, radius=rad_val, top_n=top_val
+        )
+        fsl_result = query_fsl_coordinates(x=x_val, y=y_val, z=z_val)
+
+        payload_dict = ns_result.to_dict()
+        payload_dict["fsl_anatomy"] = fsl_result.to_dict()
+
+        payload_bytes: bytes = json.dumps(payload_dict).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload_bytes)))
+        self.end_headers()
+        self.wfile.write(payload_bytes)
+
+    def _serve_fsl_atlas(
+        self,
+        x_str: str,
+        y_str: str,
+        z_str: str,
+        min_prob_str: str = "5.0",
+        atlas_filter: list[str] | None = None,
+    ) -> None:
+        """Serve JSON decoding anatomical brain regions from 20 human FSL atlases.
+
+        Parameters
+        ------------
+        x_str: str
+            MNI X coordinate string.
+        y_str: str
+            MNI Y coordinate string.
+        z_str: str
+            MNI Z coordinate string.
+        min_prob_str: str
+            Minimum probability threshold string. Defaults to "5.0".
+        atlas_filter: list[str] | None
+            Optional list of atlas keys. Defaults to None.
+
+        Returns
+        --------
+            None: NoneType object
+                Sends JSON FSL atlas lookup response.
+        """
+        from neuri.viewer.fsl_atlas import query_fsl_coordinates
+
+        try:
+            x_val: float = float(x_str)
+            y_val: float = float(y_str)
+            z_val: float = float(z_str)
+            min_p: float = float(min_prob_str)
+        except (ValueError, TypeError):
+            self.send_error(400, "Invalid coordinate or probability parameter.")
+            return
+
+        result = query_fsl_coordinates(
+            x=x_val, y=y_val, z=z_val, atlas_filter=atlas_filter, min_prob=min_p
+        )
+        payload_bytes: bytes = json.dumps(result.to_dict()).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload_bytes)))
         self.end_headers()

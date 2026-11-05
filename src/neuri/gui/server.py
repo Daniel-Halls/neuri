@@ -242,6 +242,22 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
             self._handle_get_introspect()
         elif path == "/api/v1/volumes":
             self._handle_get_volumes()
+        elif path in ("/api/neurosynth", "/api/v1/neurosynth"):
+            query_params = parse_qs(parsed_url.query)
+            x_val = query_params.get("x", ["0.0"])[0]
+            y_val = query_params.get("y", ["0.0"])[0]
+            z_val = query_params.get("z", ["0.0"])[0]
+            radius_val = query_params.get("radius", ["6"])[0]
+            top_val = query_params.get("top", ["10"])[0]
+            self._serve_neurosynth(x_val, y_val, z_val, radius_val, top_val)
+        elif path in ("/api/fsl-atlas", "/api/v1/fsl-atlas"):
+            query_params = parse_qs(parsed_url.query)
+            x_val = query_params.get("x", ["0.0"])[0]
+            y_val = query_params.get("y", ["0.0"])[0]
+            z_val = query_params.get("z", ["0.0"])[0]
+            min_prob_val = query_params.get("min_prob", ["5.0"])[0]
+            atlas_val = query_params.get("atlas", [])
+            self._serve_fsl_atlas(x_val, y_val, z_val, min_prob_val, atlas_val)
         else:
             # Delegate all standard NiiVue endpoints (/api/scene, /api/file, etc.)
             super().handle_get()
