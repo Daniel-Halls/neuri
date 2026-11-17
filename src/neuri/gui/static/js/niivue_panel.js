@@ -30,6 +30,7 @@ export class NiiVuePanel {
       this.iframe.addEventListener("load", () => {
         this.isLoaded = true;
         this.postToViewer({ type: "NEURI_RESIZE" });
+        this.postToViewer({ type: "NEURI_POLL_SCENE" });
       });
     }
   }

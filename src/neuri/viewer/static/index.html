@@ -5,7 +5,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Neuri NiiVue WebGL2 Visualizer</title>
+  <link rel="icon" type="image/png" href="/assets/neuri_icon.png">
   <style>
+    :root {
+      --neuri-background: #0c1115;
+      --neuri-foreground: #e6e8eb;
+      --neuri-surface: #141b21;
+      --neuri-surface-elevated: #1b242c;
+      --neuri-panel: #10161b;
+      --neuri-border: #212b34;
+      --neuri-primary: #e6e8eb;
+      --neuri-secondary: #9aa5b1;
+      --neuri-accent: #cbd5e1;
+      --neuri-warning: #d4a853;
+      --neuri-error: #e06c75;
+      --neuri-success: #4ade80;
+      --neuri-muted: #6e7b88;
+      --neuri-selection-bg: #1e2a35;
+      --neuri-selection-fg: #f3f5f7;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -13,8 +32,12 @@
     }
 
     body {
-      background-color: #0b0f17;
-      color: #f1f5f9;
+      background-color: var(--neuri-background);
+      background-image:
+        linear-gradient(to right, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px);
+      background-size: 48px 48px;
+      color: var(--neuri-foreground);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "JetBrains Mono", monospace;
       overflow: hidden;
       display: flex;
@@ -23,12 +46,12 @@
     }
 
     header {
-      background-color: #111827;
+      background-color: var(--neuri-panel);
       padding: 8px 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--neuri-border);
       z-index: 10;
       gap: 8px;
       flex-wrap: wrap;
@@ -46,15 +69,22 @@
       font-size: 0.95rem;
       font-weight: 700;
       letter-spacing: 0.05em;
-      color: #38bdf8;
+      color: var(--neuri-primary);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+    }
+
+    .viewer-brand-icon {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      display: block;
     }
 
     .brand span {
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -72,10 +102,10 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      background: #1e293b;
+      background: var(--neuri-surface);
       padding: 3px 6px;
       border-radius: 6px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
     }
 
     .host-box {
@@ -83,14 +113,14 @@
       align-items: center;
       gap: 5px;
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       padding-left: 4px;
     }
 
     .host-select {
-      background: #0b0f17;
-      color: #38bdf8;
-      border: 1px solid #334155;
+      background: var(--neuri-background);
+      color: var(--neuri-primary);
+      border: 1px solid var(--neuri-border);
       padding: 4px 8px;
       border-radius: 4px;
       font-size: 0.76rem;
@@ -102,13 +132,13 @@
 
     .host-select:hover,
     .host-select:focus {
-      border-color: #38bdf8;
+      border-color: var(--neuri-accent);
     }
 
     .primary-btn {
-      background: #0284c7;
-      color: #ffffff;
-      border: 1px solid #38bdf8;
+      background: var(--neuri-primary);
+      color: var(--neuri-background);
+      border: 1px solid var(--neuri-primary);
       padding: 5px 12px;
       border-radius: 4px;
       font-size: 0.78rem;
@@ -121,22 +151,21 @@
     }
 
     .primary-btn:hover {
-      background: #0369a1;
-      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+      opacity: 0.9;
     }
 
     .primary-btn:disabled {
-      background: #334155;
-      color: #64748b;
-      border-color: #475569;
+      background: var(--neuri-surface-elevated);
+      color: var(--neuri-muted);
+      border-color: var(--neuri-border);
       cursor: not-allowed;
-      box-shadow: none;
+      opacity: 0.6;
     }
 
     .secondary-btn {
-      background: #1e293b;
-      color: #cbd5e1;
-      border: 1px solid #334155;
+      background: var(--neuri-surface);
+      color: var(--neuri-secondary);
+      border: 1px solid var(--neuri-border);
       padding: 5px 10px;
       border-radius: 4px;
       font-size: 0.78rem;
@@ -149,8 +178,9 @@
     }
 
     .secondary-btn:hover {
-      background: #334155;
-      color: #ffffff;
+      background: var(--neuri-surface-elevated);
+      color: var(--neuri-foreground);
+      border-color: var(--neuri-muted);
     }
 
     .secondary-btn:disabled {
@@ -160,15 +190,15 @@
 
     .segmented-group {
       display: flex;
-      background: #1e293b;
+      background: var(--neuri-surface);
       padding: 2px;
       border-radius: 6px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
     }
 
     button {
       background: transparent;
-      color: #cbd5e1;
+      color: var(--neuri-secondary);
       border: none;
       padding: 5px 10px;
       border-radius: 4px;
@@ -179,33 +209,33 @@
     }
 
     button:hover {
-      color: #ffffff;
-      background: #334155;
+      color: var(--neuri-foreground);
+      background: var(--neuri-surface-elevated);
     }
 
     button.active {
-      background: #0284c7;
-      color: #ffffff;
+      background: var(--neuri-selection-bg);
+      color: var(--neuri-selection-fg);
       font-weight: 600;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--neuri-border);
     }
 
     .layer-controls {
       display: flex;
       align-items: center;
       gap: 8px;
-      background: #1e293b;
+      background: var(--neuri-surface);
       padding: 2px 8px;
       border-radius: 6px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
     }
 
     .layer-controls select {
-      background: #0b0f17;
-      color: #f1f5f9;
-      border: 1px solid #334155;
+      background: var(--neuri-background);
+      color: var(--neuri-foreground);
+      border: 1px solid var(--neuri-border);
       padding: 3px 6px;
       border-radius: 4px;
       font-size: 0.75rem;
@@ -214,23 +244,23 @@
 
     .layer-controls input[type="range"] {
       width: 70px;
-      accent-color: #38bdf8;
+      accent-color: var(--neuri-primary);
     }
 
     .status-panel {
       font-size: 0.78rem;
-      color: #cbd5e1;
+      color: var(--neuri-secondary);
       display: flex;
-      gap: 14px;
+      gap: 10px;
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
       font-variant-numeric: tabular-nums;
     }
 
     .coord-pill {
-      background: #1e293b;
+      background: var(--neuri-surface);
       padding: 4px 8px;
       border-radius: 4px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
     }
 
     #canvas-container {
@@ -241,7 +271,7 @@
     }
 
     #canvas-container.drag-hover {
-      outline: 3px dashed #38bdf8;
+      outline: 3px dashed var(--neuri-primary);
       outline-offset: -8px;
     }
 
@@ -255,11 +285,11 @@
       position: absolute;
       bottom: 12px;
       left: 12px;
-      background: rgba(11, 15, 23, 0.82);
+      background: color-mix(in srgb, var(--neuri-background) 85%, transparent);
       backdrop-filter: blur(6px);
       padding: 8px 14px;
       border-radius: 6px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
       font-size: 0.75rem;
       line-height: 1.45;
       pointer-events: none;
@@ -271,13 +301,13 @@
       position: absolute;
       bottom: 12px;
       right: 12px;
-      background: rgba(11, 15, 23, 0.75);
+      background: color-mix(in srgb, var(--neuri-background) 80%, transparent);
       backdrop-filter: blur(4px);
       padding: 6px 10px;
       border-radius: 6px;
-      border: 1px solid #334155;
+      border: 1px solid var(--neuri-border);
       font-size: 0.7rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       pointer-events: none;
     }
 
@@ -288,7 +318,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(11, 15, 23, 0.85);
+      background: color-mix(in srgb, var(--neuri-background) 86%, transparent);
       backdrop-filter: blur(8px);
       z-index: 1000;
       display: flex;
@@ -298,8 +328,8 @@
     }
 
     .modal-dialog {
-      background: #111827;
-      border: 1px solid #334155;
+      background: var(--neuri-panel);
+      border: 1px solid var(--neuri-border);
       border-radius: 8px;
       width: 100%;
       max-width: 860px;
@@ -312,8 +342,8 @@
 
     .modal-header {
       padding: 12px 18px;
-      background: #1e293b;
-      border-bottom: 1px solid #334155;
+      background: var(--neuri-surface);
+      border-bottom: 1px solid var(--neuri-border);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -322,7 +352,7 @@
     .modal-title h3 {
       font-size: 0.95rem;
       font-weight: 700;
-      color: #38bdf8;
+      color: var(--neuri-primary);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -330,13 +360,13 @@
 
     .modal-subtitle {
       font-size: 0.72rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
     }
 
     .close-btn {
       background: transparent;
       border: none;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       font-size: 1.1rem;
       cursor: pointer;
       padding: 4px 8px;
@@ -344,14 +374,14 @@
     }
 
     .close-btn:hover {
-      color: #ffffff;
-      background: #334155;
+      color: var(--neuri-foreground);
+      background: var(--neuri-surface-elevated);
     }
 
     .modal-toolbar {
       padding: 10px 18px;
-      background: #0f172a;
-      border-bottom: 1px solid #1e293b;
+      background: var(--neuri-background);
+      border-bottom: 1px solid var(--neuri-border);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -368,8 +398,8 @@
 
     .path-bar-container {
       padding: 8px 18px;
-      background: #111827;
-      border-bottom: 1px solid #1e293b;
+      background: var(--neuri-panel);
+      border-bottom: 1px solid var(--neuri-border);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -377,16 +407,16 @@
 
     .path-label {
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       font-weight: 600;
     }
 
     #fs-current-path-input {
       flex: 1;
-      background: #0b0f17;
-      border: 1px solid #334155;
+      background: var(--neuri-background);
+      border: 1px solid var(--neuri-border);
       border-radius: 4px;
-      color: #f1f5f9;
+      color: var(--neuri-foreground);
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
       font-size: 0.75rem;
       padding: 5px 8px;
@@ -394,13 +424,13 @@
     }
 
     #fs-current-path-input:focus {
-      border-color: #38bdf8;
+      border-color: var(--neuri-accent);
     }
 
     .filter-bar {
       padding: 8px 18px;
-      background: #111827;
-      border-bottom: 1px solid #334155;
+      background: var(--neuri-panel);
+      border-bottom: 1px solid var(--neuri-border);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -409,22 +439,22 @@
 
     #fs-filter-input {
       flex: 1;
-      background: #0b0f17;
-      border: 1px solid #334155;
+      background: var(--neuri-background);
+      border: 1px solid var(--neuri-border);
       border-radius: 4px;
-      color: #f1f5f9;
+      color: var(--neuri-foreground);
       font-size: 0.75rem;
       padding: 5px 8px;
       outline: none;
     }
 
     #fs-filter-input:focus {
-      border-color: #38bdf8;
+      border-color: var(--neuri-accent);
     }
 
     .checkbox-label {
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       display: flex;
       align-items: center;
       gap: 6px;
@@ -437,7 +467,7 @@
       overflow-y: auto;
       min-height: 260px;
       max-height: 400px;
-      background: #0b0f17;
+      background: var(--neuri-background);
     }
 
     .fs-table {
@@ -449,12 +479,12 @@
     .fs-table th {
       position: sticky;
       top: 0;
-      background: #1e293b;
-      color: #94a3b8;
+      background: var(--neuri-surface);
+      color: var(--neuri-muted);
       font-weight: 600;
       text-align: left;
       padding: 8px 12px;
-      border-bottom: 1px solid #334155;
+      border-bottom: 1px solid var(--neuri-border);
       font-size: 0.72rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -463,8 +493,8 @@
 
     .fs-table td {
       padding: 7px 12px;
-      border-bottom: 1px solid #1e293b;
-      color: #cbd5e1;
+      border-bottom: 1px solid var(--neuri-border);
+      color: var(--neuri-secondary);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -477,17 +507,25 @@
     }
 
     .fs-row:hover {
-      background: #1e293b;
+      background: var(--neuri-surface);
     }
 
     .fs-row.selected {
-      background: #0c4a6e !important;
-      color: #ffffff;
+      background: var(--neuri-selection-bg) !important;
+      color: var(--neuri-selection-fg);
+    }
+
+    .fs-kind-tag {
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+      color: var(--neuri-muted);
+      font-size: 0.72rem;
+      margin-right: 6px;
     }
 
     .badge-volume {
-      background: #0284c7;
-      color: #ffffff;
+      background: var(--neuri-selection-bg);
+      color: var(--neuri-selection-fg);
+      border: 1px solid var(--neuri-border);
       font-size: 0.65rem;
       font-weight: 700;
       padding: 2px 6px;
@@ -497,24 +535,40 @@
     }
 
     .badge-dir {
-      background: #334155;
-      color: #94a3b8;
+      background: var(--neuri-surface-elevated);
+      color: var(--neuri-muted);
       font-size: 0.65rem;
       padding: 2px 6px;
       border-radius: 3px;
+      margin-left: 6px;
     }
 
     .fs-empty-state {
       padding: 50px 20px;
       text-align: center;
-      color: #64748b;
+      color: var(--neuri-muted);
       font-size: 0.82rem;
+    }
+
+    .fs-error-banner {
+      display: none;
+      margin: 10px 18px 0 18px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: 1px solid var(--neuri-error);
+      background: var(--neuri-surface-elevated);
+      color: var(--neuri-error);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
     }
 
     .modal-footer {
       padding: 12px 18px;
-      background: #111827;
-      border-top: 1px solid #334155;
+      background: var(--neuri-panel);
+      border-top: 1px solid var(--neuri-border);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -523,7 +577,7 @@
 
     .selected-file-info {
       font-size: 0.75rem;
-      color: #94a3b8;
+      color: var(--neuri-muted);
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -549,27 +603,27 @@
     }
 
     .neurosynth-badge-cache {
-      background: rgba(56, 189, 248, 0.15);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
+      background: color-mix(in srgb, var(--neuri-accent) 15%, transparent);
+      color: var(--neuri-accent);
+      border: 1px solid color-mix(in srgb, var(--neuri-accent) 30%, transparent);
     }
 
     .neurosynth-badge-online {
-      background: rgba(34, 197, 94, 0.15);
-      color: #4ade80;
-      border: 1px solid rgba(34, 197, 94, 0.3);
+      background: color-mix(in srgb, var(--neuri-success) 15%, transparent);
+      color: var(--neuri-success);
+      border: 1px solid color-mix(in srgb, var(--neuri-success) 30%, transparent);
     }
 
     .neurosynth-badge-fallback {
-      background: rgba(234, 179, 8, 0.15);
-      color: #facc15;
-      border: 1px solid rgba(234, 179, 8, 0.3);
+      background: color-mix(in srgb, var(--neuri-warning) 15%, transparent);
+      color: var(--neuri-warning);
+      border: 1px solid color-mix(in srgb, var(--neuri-warning) 30%, transparent);
     }
 
     .neurosynth-score {
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
       font-weight: 700;
-      color: #c084fc;
+      color: var(--neuri-foreground);
     }
 
     .prob-bar-container {
@@ -581,7 +635,7 @@
     .prob-bar-track {
       flex: 1;
       height: 6px;
-      background: #1e293b;
+      background: var(--neuri-surface);
       border-radius: 3px;
       overflow: hidden;
       min-width: 60px;
@@ -589,13 +643,13 @@
 
     .prob-bar-fill {
       height: 100%;
-      background: linear-gradient(90deg, #818cf8, #c084fc);
+      background: var(--neuri-secondary);
       border-radius: 3px;
     }
 
     .spinner {
-      border: 3px solid rgba(255, 255, 255, 0.1);
-      border-top-color: #c084fc;
+      border: 3px solid var(--neuri-border);
+      border-top-color: var(--neuri-primary);
       border-radius: 50%;
       width: 24px;
       height: 24px;
@@ -615,36 +669,37 @@
 <body>
   <header>
     <div class="brand">
-      <h1>◈ NEURI</h1>
+      <h1><img src="/assets/buttons/v.png" alt="[V]" class="viewer-brand-icon"> NEURI</h1>
       <span id="scene-title">Waiting for scene manifest...</span>
     </div>
     <div class="controls">
       <div class="file-action-group">
         <div class="host-box"
           title="Select target machine (localhost or remote SSH host) to browse for neuroimaging volumes">
-          <span>🖥 Host:</span>
+          <span>Host:</span>
           <select id="host-select" class="host-select" onchange="onHostSelectChange(this.value)">
             <option value="localhost">localhost</option>
           </select>
         </div>
         <button id="btn-open-volume" class="primary-btn" onclick="openFileExplorerModal()"
           title="Open file explorer to browse volumes on the selected host">
-          📂 Open Volume
+          Open Volume
         </button>
         <button id="btn-demo-volume" class="secondary-btn" onclick="loadDemoVolume()"
           title="Load standard MNI152 template volume">
           MNI Template
         </button>
         <input type="file" id="browser-file-picker" style="display: none;"
-          accept=".nii,.nii.gz,.mgh,.mgz,.dcm,.dim,.img,.hdr" onchange="handleBrowserFileSelected(event)">
+          accept=".nii,.nii.gz,.nii.zst,.mgh,.mgz,.dcm,.ima,.dim,.img,.hdr,.nrrd,.nhdr,.brik,.head,.gii,.mz3,.vtk,.vtp,.stl,.obj,.ply,.gz"
+          onchange="handleBrowserFileSelected(event)">
       </div>
 
       <div class="segmented-group">
-        <button id="btn-multi" class="active" onclick="setViewMode(0)">Multi</button>
-        <button id="btn-axial" onclick="setViewMode(1)">Axial</button>
-        <button id="btn-coronal" onclick="setViewMode(2)">Coronal</button>
-        <button id="btn-sagittal" onclick="setViewMode(3)">Sagittal</button>
-        <button id="btn-3d" onclick="setViewMode(4)">3D</button>
+        <button id="btn-multi" class="active" onclick="setViewMode('multi')">Multi</button>
+        <button id="btn-axial" onclick="setViewMode('axial')">Axial</button>
+        <button id="btn-coronal" onclick="setViewMode('coronal')">Coronal</button>
+        <button id="btn-sagittal" onclick="setViewMode('sagittal')">Sagittal</button>
+        <button id="btn-3d" onclick="setViewMode('render3d')">3D</button>
       </div>
       <div class="layer-controls">
         <label for="colormap-select">Colormap:</label>
@@ -664,10 +719,10 @@
     <div class="status-panel">
       <span id="coords-mni" class="coord-pill">MNI: (0.0, 0.0, 0.0)</span>
       <span id="intensity-val" class="coord-pill">Val: --</span>
-      <button id="btn-attach-prompt" class="secondary-btn" style="padding: 2px 8px; font-size: 0.72rem; color: #38bdf8;"
+      <button id="btn-attach-prompt" class="secondary-btn" style="padding: 2px 8px; font-size: 0.72rem; color: var(--neuri-primary);"
         onclick="attachCoordsToStudioPrompt()" title="Attach current MNI coordinates to prompt">+ Attach</button>
       <button id="btn-whats-this" class="secondary-btn"
-        style="padding: 2px 8px; font-size: 0.72rem; color: #a956fd; border-color: rgba(155, 62, 248, 0.668); margin-left: 4px;"
+        style="padding: 2px 8px; font-size: 0.72rem; color: var(--neuri-accent); margin-left: 4px;"
         onclick="queryNeurosynthWhatsThis()" title="What's this? Query top 10 Neurosynth functional associations">Query
         Location</button>
     </div>
@@ -682,31 +737,30 @@
     <div class="modal-dialog">
       <div class="modal-header">
         <div class="modal-title">
-          <h3 id="modal-explorer-heading">🗂 File Explorer — localhost</h3>
+          <h3 id="modal-explorer-heading">File Explorer — localhost</h3>
           <span id="modal-explorer-subtitle" class="modal-subtitle">Browse and select neuroimaging volumes on
             localhost</span>
         </div>
-        <button class="close-btn" onclick="closeFileExplorerModal()" title="Close">✕</button>
+        <button class="close-btn" onclick="closeFileExplorerModal()" title="Close">&times;</button>
       </div>
 
       <div class="modal-toolbar">
         <div class="quick-nav">
           <div class="host-box">
-            <span>🖥 Host:</span>
+            <span>Host:</span>
             <select id="modal-host-select" class="host-select" onchange="onHostSelectChange(this.value)">
               <option value="localhost">localhost</option>
             </select>
           </div>
-          <button class="secondary-btn" onclick="navigateDir('workspace')" title="Jump to Workspace directory">💼
-            Workspace</button>
-          <button class="secondary-btn" onclick="navigateDir('home')" title="Jump to Home directory">🏠 Home</button>
-          <button id="btn-nav-up" class="secondary-btn" onclick="navigateUp()" title="Go up one folder">⬆ Up</button>
+          <button class="secondary-btn" onclick="navigateDir('workspace')" title="Jump to Workspace directory">Workspace</button>
+          <button class="secondary-btn" onclick="navigateDir('home')" title="Jump to Home directory">Home</button>
+          <button id="btn-nav-up" class="secondary-btn" onclick="navigateUp()" title="Go up one folder">&uarr; Up</button>
         </div>
         <div class="system-actions">
           <button id="btn-system-dialog" class="secondary-btn" onclick="openSystemFileDialog()"
-            title="Launch native OS file chooser (localhost only)">🖥 System Dialog</button>
+            title="Launch native OS file chooser (localhost only)">System Dialog</button>
           <button class="secondary-btn" onclick="triggerBrowserFilePicker()"
-            title="Upload a file directly from your local browser">📥 Local Upload</button>
+            title="Upload a file directly from your local browser">Local Upload</button>
         </div>
       </div>
 
@@ -719,12 +773,14 @@
       </div>
 
       <div class="filter-bar">
-        <input type="text" id="fs-filter-input" placeholder="🔍 Filter volumes & files (e.g. sub-01, .nii.gz)"
+        <input type="text" id="fs-filter-input" placeholder="Filter volumes & files (e.g. sub-01, .nii.gz)"
           oninput="filterEntries(this.value)">
         <label class="checkbox-label">
           <input type="checkbox" id="fs-show-all-checkbox" onchange="toggleShowAllFiles(this.checked)"> Show all files
         </label>
       </div>
+
+      <div id="fs-error-banner" class="fs-error-banner"></div>
 
       <div class="fs-list-container">
         <table class="fs-table">
@@ -762,40 +818,40 @@
   <div id="neurosynth-modal" class="modal-backdrop" style="display: none;"
     onclick="onNeurosynthModalBackdropClick(event)">
     <div class="modal-dialog" style="max-width: 680px;">
-      <div class="modal-header" style="border-bottom: 1px solid rgba(192, 132, 252, 0.25);">
+      <div class="modal-header">
         <div class="modal-title">
-          <h3 style="color: #be7dffac;">
-            <span>📍 Location Query — Anatomy & Function</span>
+          <h3 style="color: var(--neuri-primary);">
+            <span>Location Query — Anatomy &amp; Function</span>
           </h3>
           <span id="neurosynth-modal-subtitle" class="modal-subtitle">
-            Offline FSL Atlases (20 Human Parcellations) & Neurosynth Associations
+            Offline FSL Atlases (20 Human Parcellations) &amp; Neurosynth Associations
           </span>
         </div>
-        <button class="close-btn" onclick="closeNeurosynthModal()" title="Close">✕</button>
+        <button class="close-btn" onclick="closeNeurosynthModal()" title="Close">&times;</button>
       </div>
 
-      <div class="modal-toolbar" style="background: #0d121c; border-bottom: 1px solid #1e293b; justify-content: space-between;">
+      <div class="modal-toolbar" style="justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem;">
-          <span style="color: #94a3b8;">Coordinates:</span>
-          <span id="neurosynth-coords-pill" class="coord-pill" style="color: #38bdf8;">MNI: (0, 0, 0)</span>
+          <span style="color: var(--neuri-muted);">Coordinates:</span>
+          <span id="neurosynth-coords-pill" class="coord-pill" style="color: var(--neuri-primary);">MNI: (0, 0, 0)</span>
           <span id="neurosynth-source-badge" class="neurosynth-badge neurosynth-badge-online"
             style="margin-left: 6px;">offline fsl</span>
         </div>
         <div class="segmented-group" style="margin-left: auto;">
-          <button id="tab-btn-fsl" class="active" onclick="switchLocationTab('fsl')">🏛️ FSL Anatomy</button>
-          <button id="tab-btn-neurosynth" onclick="switchLocationTab('neurosynth')">🔮 Neurosynth</button>
+          <button id="tab-btn-fsl" class="active" onclick="switchLocationTab('fsl')">FSL Anatomy</button>
+          <button id="tab-btn-neurosynth" onclick="switchLocationTab('neurosynth')">Neurosynth</button>
         </div>
       </div>
 
       <div class="fs-list-container" id="neurosynth-body" style="min-height: 240px; max-height: 400px; padding: 0;">
-        <div id="neurosynth-loading" style="display: none; padding: 40px 20px; text-align: center; color: #94a3b8;">
+        <div id="neurosynth-loading" style="display: none; padding: 40px 20px; text-align: center; color: var(--neuri-muted);">
           <div class="spinner" style="margin-bottom: 12px;"></div>
           <div>Resolving FSL anatomical atlases and Neurosynth associations...</div>
         </div>
 
-        <div id="neurosynth-error" style="display: none; padding: 30px 20px; text-align: center; color: #f87171;">
-          <div style="font-size: 1.1rem; margin-bottom: 6px;">⚠️ Query Error</div>
-          <div id="neurosynth-error-msg" style="font-size: 0.78rem; color: #cbd5e1;"></div>
+        <div id="neurosynth-error" style="display: none; padding: 30px 20px; text-align: center; color: var(--neuri-error);">
+          <div style="font-size: 1.1rem; margin-bottom: 6px;">Query Error</div>
+          <div id="neurosynth-error-msg" style="font-size: 0.78rem; color: var(--neuri-secondary);"></div>
         </div>
 
         <!-- FSL Anatomy Table Container -->
@@ -833,14 +889,14 @@
       </div>
 
       <div class="modal-footer">
-        <div style="font-size: 0.72rem; color: #64748b;">
-          Databases: <span style="color: #94a3b8;">FSL Atlases (Offline) • Neurosynth (14k studies)</span>
+        <div style="font-size: 0.72rem; color: var(--neuri-muted);">
+          Databases: <span style="color: var(--neuri-secondary);">FSL Atlases (Offline) &bull; Neurosynth (14k studies)</span>
         </div>
         <div class="modal-footer-btns">
           <button id="btn-neurosynth-copy" class="secondary-btn" onclick="copyNeurosynthMarkdown()"
-            title="Copy markdown summary table to clipboard">📋 Copy</button>
+            title="Copy markdown summary table to clipboard">Copy</button>
           <button id="btn-neurosynth-attach" class="primary-btn" onclick="attachNeurosynthToPrompt()"
-            style="background: #9333ea; border-color: #a855f7;" title="Attach anatomical & functional summary to AI chat prompt">+
+            title="Attach anatomical & functional summary to AI chat prompt">+
             Attach to Prompt</button>
           <button class="secondary-btn" onclick="closeNeurosynthModal()">Close</button>
         </div>
@@ -851,6 +907,8 @@
   <script>
     let nv = null;
     let currentSceneId = null;
+    let lastBackendSceneId = null;
+    let suppressedBackendSceneId = null;
 
     // Multi-Host & File Explorer State
     let currentHost = "localhost";
@@ -948,11 +1006,11 @@
 
         // 1. Render FSL Anatomy Table
         const fslHits = (data.fsl_anatomy && data.fsl_anatomy.hits) ? data.fsl_anatomy.hits : [];
-        if (btnFsl) btnFsl.textContent = `🏛️ FSL Anatomy (${fslHits.length})`;
+        if (btnFsl) btnFsl.textContent = `FSL Anatomy (${fslHits.length})`;
         if (fslTbody) {
           fslTbody.innerHTML = "";
           if (fslHits.length === 0) {
-            fslTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 24px; color: #94a3b8;">No matching FSL atlas region found at this coordinate.</td></tr>`;
+            fslTbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 24px; color: var(--neuri-muted);">No matching FSL atlas region found at this coordinate.</td></tr>`;
           } else {
             fslHits.forEach((hit) => {
               const tr = document.createElement("tr");
@@ -962,8 +1020,8 @@
               const probPct = isProb ? Math.min(100, Math.max(0, Math.round(hit.probability))) : 100;
 
               tr.innerHTML = `
-                <td style="font-weight: 600; color: #cbd5e1; font-size: 0.74rem;">${hit.atlas_name}</td>
-                <td style="font-weight: 600; color: #f1f5f9;">${hit.region_name}</td>
+                <td style="font-weight: 600; color: var(--neuri-secondary); font-size: 0.74rem;">${hit.atlas_name}</td>
+                <td style="font-weight: 600; color: var(--neuri-foreground);">${hit.region_name}</td>
                 <td style="text-align: right;">
                   ${isProb ? `
                     <div class="prob-bar-container" style="justify-content: flex-end;">
@@ -973,7 +1031,7 @@
                       <span class="neurosynth-score" style="min-width: 32px;">${probVal}</span>
                     </div>
                   ` : `
-                    <span class="badge-volume" style="background: #334155; color: #38bdf8;">Discrete</span>
+                    <span class="badge-volume">Discrete</span>
                   `}
                 </td>
               `;
@@ -985,11 +1043,11 @@
 
         // 2. Render Neurosynth Functional Table
         const assocs = data.associations || [];
-        if (btnNs) btnNs.textContent = `🔮 Neurosynth (${assocs.length})`;
+        if (btnNs) btnNs.textContent = `Neurosynth (${assocs.length})`;
         if (nsTbody) {
           nsTbody.innerHTML = "";
           if (assocs.length === 0) {
-            nsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 24px; color: #94a3b8;">No strong functional associations found within 6mm radius.</td></tr>`;
+            nsTbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 24px; color: var(--neuri-muted);">No strong functional associations found within 6mm radius.</td></tr>`;
           } else {
             assocs.forEach((item, idx) => {
               const tr = document.createElement("tr");
@@ -999,15 +1057,15 @@
               const probPct = Math.min(100, Math.max(0, Math.round(parseFloat(probVal) * 100)));
 
               tr.innerHTML = `
-                <td style="text-align: center; color: #64748b; font-weight: 600;">${idx + 1}</td>
-                <td style="font-weight: 600; color: #f1f5f9;">${item.term}</td>
+                <td style="text-align: center; color: var(--neuri-muted); font-weight: 600;">${idx + 1}</td>
+                <td style="font-weight: 600; color: var(--neuri-foreground);">${item.term}</td>
                 <td style="text-align: right;"><span class="neurosynth-score">${zVal}</span></td>
                 <td>
                   <div class="prob-bar-container">
                     <div class="prob-bar-track">
                       <div class="prob-bar-fill" style="width: ${probPct}%;"></div>
                     </div>
-                    <span style="font-size: 0.72rem; color: #94a3b8; font-family: monospace;">${probVal}</span>
+                    <span style="font-size: 0.72rem; color: var(--neuri-muted); font-family: monospace;">${probVal}</span>
                   </div>
                 </td>
               `;
@@ -1128,42 +1186,145 @@
       });
     }
 
+    function isMeshFileName(fileName) {
+      const lower = (fileName || "").toLowerCase();
+      return [".gii", ".mz3", ".vtk", ".vtp", ".stl", ".obj", ".ply"].some(ext => lower.endsWith(ext));
+    }
+
+    function toAbsoluteUrl(urlOrPath) {
+      if (!urlOrPath) return "";
+      if (/^(https?:|blob:|data:)/i.test(urlOrPath)) {
+        return urlOrPath;
+      }
+      return new URL(urlOrPath, window.location.origin).href;
+    }
+
+    function setElementText(elementId, textValue) {
+      const el = document.getElementById(elementId);
+      if (el) el.innerText = textValue;
+    }
+
+    function showExplorerError(message, showLocalhostSwitch = false) {
+      const banner = document.getElementById("fs-error-banner");
+      if (!banner) return;
+      banner.innerHTML = "";
+      const textSpan = document.createElement("span");
+      textSpan.textContent = message;
+      banner.appendChild(textSpan);
+      if (showLocalhostSwitch && currentHost !== "localhost") {
+        const switchBtn = document.createElement("button");
+        switchBtn.className = "secondary-btn";
+        switchBtn.textContent = "Switch to localhost";
+        switchBtn.onclick = () => onHostSelectChange("localhost");
+        banner.appendChild(switchBtn);
+      }
+      banner.style.display = "flex";
+    }
+
+    function clearExplorerError() {
+      const banner = document.getElementById("fs-error-banner");
+      if (banner) {
+        banner.style.display = "none";
+        banner.innerHTML = "";
+      }
+    }
+
+    async function loadSingleBufferFallback(buffer, entry) {
+      const fileName = entry.name || "volume.nii.gz";
+      const fileObj = new File([buffer], fileName);
+      if (typeof nv.loadFromArrayBuffer === "function") {
+        try {
+          await nv.loadFromArrayBuffer(buffer, fileName);
+          return;
+        } catch (bufErr) {
+          console.warn("loadFromArrayBuffer failed:", bufErr);
+        }
+      }
+      if (typeof nv.loadFromFile === "function") {
+        try {
+          await nv.loadFromFile(fileObj);
+          return;
+        } catch (fileErr) {
+          console.warn("loadFromFile failed:", fileErr);
+        }
+      }
+      const blobUrl = URL.createObjectURL(fileObj);
+      try {
+        await nv.loadVolumes([{ ...entry, url: blobUrl, name: fileName }]);
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    }
+
+    async function loadEntriesIntoNiiVue(entries) {
+      if (!nv || !entries || entries.length === 0) return;
+      const normalized = entries.map((item) => ({
+        ...item,
+        url: toAbsoluteUrl(item.url),
+        name: item.name || "volume.nii.gz",
+        colormap: item.colormap || "gray",
+        opacity: item.opacity !== undefined ? item.opacity : 1.0
+      }));
+
+      const hasMesh = normalized.some((item) => isMeshFileName(item.name));
+      try {
+        if (hasMesh && typeof nv.loadImages === "function") {
+          await nv.loadImages(normalized);
+          return;
+        }
+        if (hasMesh && normalized.every((item) => isMeshFileName(item.name)) && typeof nv.loadMeshes === "function") {
+          await nv.loadMeshes(normalized);
+          return;
+        }
+        await nv.loadVolumes(normalized);
+        return;
+      } catch (directErr) {
+        console.warn("Direct NiiVue URL load failed, falling back to fetch buffer:", directErr);
+      }
+
+      if (hasMesh && typeof nv.loadImages !== "function") {
+        throw new Error("Mesh loading requires NiiVue loadImages support");
+      }
+
+      for (const entry of normalized) {
+        const resp = await fetch(entry.url);
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
+        }
+        const buffer = await resp.arrayBuffer();
+        await loadSingleBufferFallback(buffer, entry);
+      }
+    }
+
     async function loadDemoVolume() {
       if (!nv) return;
       try {
-        document.getElementById("scene-title").innerText = "Loading MNI152 template...";
+        setElementText("scene-title", "Loading MNI152 template...");
         const demoUrl = "https://niivue.github.io/niivue-demo-images/mni152.nii.gz";
-        try {
-          await nv.loadVolumes([{
-            url: demoUrl,
-            name: "mni152.nii.gz",
-            colormap: "gray",
-            opacity: 1.0
-          }]);
-        } catch (demoErr) {
-          console.warn("loadVolumes failed, trying ArrayBuffer fallback:", demoErr);
-          const resp = await fetch(demoUrl);
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const buf = await resp.arrayBuffer();
-          await nv.loadFromArrayBuffer(buf, "mni152.nii.gz");
-        }
+        await loadEntriesIntoNiiVue([{
+          url: demoUrl,
+          name: "mni152.nii.gz",
+          colormap: "gray",
+          opacity: 1.0
+        }]);
+        suppressedBackendSceneId = lastBackendSceneId;
         currentSceneId = "demo_mni152";
-        document.getElementById("scene-title").innerText = "Neuri: MNI152 Standard Template";
-        document.getElementById("hud-scene-id").innerText = "demo-mni152";
-        document.getElementById("hud-layers").innerText = 1;
+        setElementText("scene-title", "Neuri: MNI152 Standard Template");
+        setElementText("hud-scene-id", "demo-mni152");
+        setElementText("hud-layers", 1);
       } catch (err) {
         console.warn("Failed to load demo volume:", err);
-        alert(`Failed to load demo volume: ${err.message || err}`);
+        setElementText("scene-title", `Error: ${err.message || err}`);
       }
     }
 
     async function initNiiVue() {
       if (typeof niivue === "undefined") {
-        document.getElementById("scene-title").innerText = "Error: NiiVue WebGL2 library not loaded.";
+        setElementText("scene-title", "Error: NiiVue WebGL2 library not loaded.");
         return;
       }
       nv = new niivue.Niivue({
-        backColor: [0.043, 0.059, 0.090, 1.0], // #0B0F17 Obsidian Neuro canvas
+        backColor: [0.047, 0.067, 0.082, 1.0], // #0C1115 Neuri Grid canvas
         show3Dcrosshair: true,
         loadingText: "Loading neuroimaging volume...",
         onLocationChange: (data) => {
@@ -1173,8 +1334,10 @@
               Math.round(data.mm[1]),
               Math.round(data.mm[2])
             ];
-            document.getElementById("coords-mni").innerText =
-              `MNI: (${data.mm[0].toFixed(1)}, ${data.mm[1].toFixed(1)}, ${data.mm[2].toFixed(1)})`;
+            setElementText(
+              "coords-mni",
+              `MNI: (${data.mm[0].toFixed(1)}, ${data.mm[1].toFixed(1)}, ${data.mm[2].toFixed(1)})`
+            );
             if (window.parent && window.parent !== window) {
               window.parent.postMessage({
                 type: "NEURI_NIIVUE_COORDS",
@@ -1187,12 +1350,12 @@
           if (data && data.values && data.values.length > 0) {
             const rawVal = data.values[0].value !== undefined ? data.values[0].value : data.values[0];
             const displayVal = typeof rawVal === "number" ? rawVal.toFixed(2) : rawVal;
-            document.getElementById("intensity-val").innerText =
-              `Val: ${displayVal}`;
+            setElementText("intensity-val", `Val: ${displayVal}`);
           }
         }
       });
-      nv.attachTo("gl");
+      await nv.attachTo("gl");
+      setViewMode("multi");
       setupDragAndDrop();
       await loadAvailableHosts();
       pollScene();
@@ -1272,25 +1435,65 @@
       const sysBtn = document.getElementById("btn-system-dialog");
 
       if (currentHost === "localhost") {
-        if (heading) heading.innerText = "🗂 File Explorer — localhost";
+        if (heading) heading.innerText = "File Explorer — localhost";
         if (subtitle) subtitle.innerText = "Browse and select neuroimaging volumes on localhost";
         if (sysBtn) sysBtn.style.display = "inline-flex";
       } else {
-        if (heading) heading.innerText = `🗂 File Explorer — ${currentHost} (SSH)`;
+        if (heading) heading.innerText = `File Explorer — ${currentHost} (SSH)`;
         if (subtitle) subtitle.innerText = `Zero-daemon remote browsing over multiplexed SSH on ${currentHost}`;
         if (sysBtn) sysBtn.style.display = "none";
       }
     }
 
+    function normalizeViewKey(mode) {
+      if (typeof mode === "number") {
+        const axialVal = nv?.sliceTypeAxial ?? niivue?.SLICE_TYPE?.AXIAL ?? 0;
+        const coronalVal = nv?.sliceTypeCoronal ?? niivue?.SLICE_TYPE?.CORONAL ?? 1;
+        const sagittalVal = nv?.sliceTypeSagittal ?? niivue?.SLICE_TYPE?.SAGITTAL ?? 2;
+        const multiVal = nv?.sliceTypeMultiplanar ?? niivue?.SLICE_TYPE?.MULTIPLANAR ?? 3;
+        const renderVal = nv?.sliceTypeRender ?? niivue?.SLICE_TYPE?.RENDER ?? 4;
+        if (mode === axialVal) return "axial";
+        if (mode === coronalVal) return "coronal";
+        if (mode === sagittalVal) return "sagittal";
+        if (mode === renderVal) return "render3d";
+        if (mode === multiVal) return "multi";
+        return "multi";
+      }
+      const key = String(mode || "multi").toLowerCase().trim();
+      if (key === "multiplanar" || key === "multi") return "multi";
+      if (key === "render3d" || key === "render" || key === "3d") return "render3d";
+      if (key === "axial" || key === "coronal" || key === "sagittal") return key;
+      return "multi";
+    }
+
+    function resolveSliceType(modeKey) {
+      const sliceEnum = (typeof niivue !== "undefined" && niivue.SLICE_TYPE) ? niivue.SLICE_TYPE : null;
+      const map = {
+        multi: nv?.sliceTypeMultiplanar ?? sliceEnum?.MULTIPLANAR ?? 3,
+        axial: nv?.sliceTypeAxial ?? sliceEnum?.AXIAL ?? 0,
+        coronal: nv?.sliceTypeCoronal ?? sliceEnum?.CORONAL ?? 1,
+        sagittal: nv?.sliceTypeSagittal ?? sliceEnum?.SAGITTAL ?? 2,
+        render3d: nv?.sliceTypeRender ?? sliceEnum?.RENDER ?? 4
+      };
+      return map[modeKey] !== undefined ? map[modeKey] : map.multi;
+    }
+
     function setViewMode(mode) {
       if (!nv) return;
-      nv.setSliceType(mode);
-      const buttons = ["btn-multi", "btn-axial", "btn-coronal", "btn-sagittal", "btn-3d"];
-      buttons.forEach((id, idx) => {
+      const viewKey = normalizeViewKey(mode);
+      const sliceType = resolveSliceType(viewKey);
+      nv.setSliceType(sliceType);
+      const viewButtons = {
+        multi: "btn-multi",
+        axial: "btn-axial",
+        coronal: "btn-coronal",
+        sagittal: "btn-sagittal",
+        render3d: "btn-3d"
+      };
+      Object.entries(viewButtons).forEach(([key, id]) => {
         const btn = document.getElementById(id);
         if (btn) {
-          if (idx === mode) btn.classList.add("active");
-          else btn.classList.remove("active");
+          btn.classList.toggle("active", key === viewKey);
         }
       });
     }
@@ -1314,20 +1517,23 @@
         if (!res.ok) return;
         const scene = await res.json();
         if (!scene || !scene.scene_id) return;
-        if (scene.scene_id === currentSceneId) return;
-
+        lastBackendSceneId = scene.scene_id;
+        if (scene.scene_id === currentSceneId || scene.scene_id === suppressedBackendSceneId) {
+          return;
+        }
+        suppressedBackendSceneId = null;
         currentSceneId = scene.scene_id;
-        document.getElementById("scene-title").innerText = scene.title || "Active Neuroimaging Scene";
-        document.getElementById("hud-scene-id").innerText = scene.scene_id;
-        document.getElementById("hud-layers").innerText = (scene.volumes ? scene.volumes.length : 0);
+        setElementText("scene-title", scene.title || "Active Neuroimaging Scene");
+        setElementText("hud-scene-id", scene.scene_id);
+        setElementText("hud-layers", scene.volumes ? scene.volumes.length : 0);
 
         if (scene.volumes && scene.volumes.length > 0) {
           const volumeList = scene.volumes.map(v => {
             const raw = v.artifact_uri.split("/").pop().split("\\").pop() || "volume.nii.gz";
             const fName = raw.indexOf("?") > -1 ? raw.slice(0, raw.indexOf("?")) : raw;
-            const fileUrl = v.artifact_uri.startsWith("http")
+            const fileUrl = /^https?:\/\//i.test(v.artifact_uri)
               ? v.artifact_uri
-              : `/api/file/${encodeURIComponent(fName)}?uri=${encodeURIComponent(v.artifact_uri)}`;
+              : toAbsoluteUrl(`/api/file/${encodeURIComponent(fName)}?uri=${encodeURIComponent(v.artifact_uri)}`);
             return {
               url: fileUrl,
               name: fName,
@@ -1337,18 +1543,7 @@
               cal_max: v.cal_max
             };
           });
-          try {
-            await nv.loadVolumes(volumeList);
-          } catch (pollErr) {
-            console.warn("loadVolumes failed, using ArrayBuffer fallback:", pollErr);
-            for (const vol of volumeList) {
-              const resp = await fetch(vol.url);
-              if (resp.ok) {
-                const buf = await resp.arrayBuffer();
-                await nv.loadFromArrayBuffer(buf, vol.name);
-              }
-            }
-          }
+          await loadEntriesIntoNiiVue(volumeList);
           if (scene.volumes[0].colormap) {
             const sel = document.getElementById("colormap-select");
             if (sel) sel.value = scene.volumes[0].colormap;
@@ -1356,15 +1551,7 @@
         }
 
         if (scene.slice_type) {
-          const modeMap = {
-            "multiplanar": 0,
-            "axial": 1,
-            "coronal": 2,
-            "sagittal": 3,
-            "render3d": 4
-          };
-          const m = modeMap[scene.slice_type];
-          if (m !== undefined) setViewMode(m);
+          setViewMode(scene.slice_type);
         }
 
         if (scene.crosshair_mni) {
@@ -1380,21 +1567,43 @@
     // -------------------------------------------------------------------------
     async function openSystemFileDialog() {
       const btn = document.getElementById("btn-system-dialog");
-      const originalText = btn ? btn.innerHTML : "🖥 System Dialog";
+      const originalText = btn ? btn.innerHTML : "System Dialog";
+      clearExplorerError();
       if (btn) {
-        btn.innerHTML = "⏳ Opening...";
+        btn.innerHTML = "Opening...";
         btn.disabled = true;
       }
       try {
+        const tauriOpen = window.__TAURI__?.dialog?.open || window.parent?.__TAURI__?.dialog?.open;
+        if (typeof tauriOpen === "function") {
+          const selected = await tauriOpen({
+            directory: false,
+            multiple: false,
+            title: "Select Neuroimaging Volume",
+            filters: [{
+              name: "Neuroimaging Volumes",
+              extensions: ["nii", "nii.gz", "mgz", "mgh", "dcm", "ima", "nrrd", "nhdr", "img", "hdr", "gii", "mz3", "vtk", "stl"]
+            }]
+          });
+          if (selected && typeof selected === "string") {
+            await openVolumePath(selected, "localhost");
+            return;
+          }
+          if (selected === null) return;
+        }
+
         const res = await fetch("/api/open-dialog", { method: "POST" });
         if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
         const data = await res.json();
         if (data.status === "ok" && data.path) {
-          closeFileExplorerModal();
           await applyLoadedVolume(data);
+          closeFileExplorerModal();
+        } else if (data.status === "unsupported") {
+          showExplorerError(data.message || "Native OS dialog unavailable. Use the folder list or Local Upload.");
         }
       } catch (err) {
         console.warn("System file dialog failed:", err);
+        showExplorerError(`Failed to open volume: ${err.message || err}`);
       } finally {
         if (btn) {
           btn.innerHTML = originalText;
@@ -1405,41 +1614,45 @@
 
     async function applyLoadedVolume(data) {
       if (!nv) return;
+      const pathCandidate = data.path || data.abs_path || data.uri || (data.scene?.volumes?.[0]?.artifact_uri) || "";
+      if (!pathCandidate) {
+        throw new Error("Missing volume path");
+      }
       const rawName = data.title
         ? data.title.replace(/^Neuri(\s*\[[^\]]+\])?:\s*/, "")
-        : (data.path ? data.path.split("/").pop().split("\\").pop() : "volume.nii.gz");
+        : (pathCandidate.split("/").pop().split("\\").pop() || "volume.nii.gz");
       const fileName = rawName.indexOf("?") > -1 ? rawName.slice(0, rawName.indexOf("?")) : rawName;
       const hostLabel = data.host || currentHost || "localhost";
 
       if (data.scene && data.scene.scene_id) {
+        lastBackendSceneId = data.scene.scene_id;
+        suppressedBackendSceneId = null;
         currentSceneId = data.scene.scene_id;
-        document.getElementById("hud-scene-id").innerText = data.scene.scene_id;
+        setElementText("hud-scene-id", data.scene.scene_id);
       } else {
+        suppressedBackendSceneId = lastBackendSceneId;
         currentSceneId = "custom_" + Date.now();
-        document.getElementById("hud-scene-id").innerText = currentSceneId;
+        setElementText("hud-scene-id", currentSceneId);
       }
       const displayTitle = hostLabel === "localhost"
         ? `Neuri: ${fileName}`
         : `Neuri [${hostLabel}]: ${fileName}`;
-      document.getElementById("scene-title").innerText = displayTitle;
-      document.getElementById("hud-host").innerText = hostLabel;
-      document.getElementById("hud-layers").innerText = 1;
+      setElementText("scene-title", `Loading: ${fileName}...`);
+      setElementText("hud-host", hostLabel);
 
-      const volUrl = `/api/file/${encodeURIComponent(fileName)}?uri=${encodeURIComponent(data.path)}`;
-      try {
-        await nv.loadVolumes([{
-          url: volUrl,
-          name: fileName,
-          colormap: "gray",
-          opacity: 1.0
-        }]);
-      } catch (loadErr) {
-        console.warn("loadVolumes failed, using ArrayBuffer fallback:", loadErr);
-        const resp = await fetch(volUrl);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-        const buffer = await resp.arrayBuffer();
-        await nv.loadFromArrayBuffer(buffer, fileName);
-      }
+      const volUrl = /^https?:\/\//i.test(pathCandidate)
+        ? pathCandidate
+        : toAbsoluteUrl(`/api/file/${encodeURIComponent(fileName)}?uri=${encodeURIComponent(pathCandidate)}`);
+
+      await loadEntriesIntoNiiVue([{
+        url: volUrl,
+        name: fileName,
+        colormap: "gray",
+        opacity: 1.0
+      }]);
+      setElementText("scene-title", displayTitle);
+      const layerCount = (nv.volumes ? nv.volumes.length : 0) + (nv.meshes ? nv.meshes.length : 0);
+      setElementText("hud-layers", Math.max(1, layerCount));
     }
 
     function triggerBrowserFilePicker() {
@@ -1449,54 +1662,83 @@
 
     async function handleBrowserFileSelected(event) {
       const files = event.target.files;
-      if (!files || files.length === 0) return;
+      const selectedFile = files && files.length > 0 ? files[0] : null;
+      event.target.value = "";
+      if (!selectedFile) return;
+      await handleLocalFileObject(selectedFile);
       closeFileExplorerModal();
-      await handleLocalFileObject(files[0]);
     }
 
     async function handleLocalFileObject(file) {
-      if (!nv) return;
+      if (!nv || !file) return;
+      const blobUrl = URL.createObjectURL(file);
       try {
-        document.getElementById("scene-title").innerText = `Loading: ${file.name}...`;
-        if (typeof nv.loadFromFile === "function") {
-          try {
-            await nv.loadFromFile(file);
-          } catch (fileErr) {
-            console.warn("loadFromFile failed, trying ArrayBuffer fallback:", fileErr);
-            const buffer = await file.arrayBuffer();
-            await nv.loadFromArrayBuffer(buffer, file.name);
-          }
-        } else {
-          const buffer = await file.arrayBuffer();
-          await nv.loadFromArrayBuffer(buffer, file.name);
+        clearExplorerError();
+        setElementText("scene-title", `Loading: ${file.name}...`);
+        let loaded = false;
+        try {
+          await loadEntriesIntoNiiVue([{
+            url: blobUrl,
+            name: file.name,
+            colormap: "gray",
+            opacity: 1.0
+          }]);
+          loaded = true;
+        } catch (urlErr) {
+          console.warn("Blob URL load failed, falling back to File/Buffer loader:", urlErr);
         }
+        if (!loaded) {
+          if (typeof nv.loadFromFile === "function") {
+            try {
+              await nv.loadFromFile(file);
+              loaded = true;
+            } catch (fileErr) {
+              console.warn("loadFromFile failed, trying buffer:", fileErr);
+            }
+          }
+          if (!loaded) {
+            const buffer = await file.arrayBuffer();
+            await loadSingleBufferFallback(buffer, { name: file.name, colormap: "gray", opacity: 1.0 });
+          }
+        }
+        suppressedBackendSceneId = lastBackendSceneId;
         currentSceneId = "local_" + Date.now();
-        document.getElementById("scene-title").innerText = `Neuri: ${file.name}`;
-        document.getElementById("hud-scene-id").innerText = "browser-upload";
-        document.getElementById("hud-layers").innerText = (nv.volumes ? nv.volumes.length : 1);
+        setElementText("scene-title", `Neuri: ${file.name}`);
+        setElementText("hud-scene-id", "browser-upload");
+        setElementText("hud-host", "local-file");
+        const layerCount = (nv.volumes ? nv.volumes.length : 0) + (nv.meshes ? nv.meshes.length : 0);
+        setElementText("hud-layers", Math.max(1, layerCount));
       } catch (err) {
         console.error("Failed to load local file object:", err);
-        alert(`Failed to load volume: ${err.message || err}`);
+        const errMsg = `Failed to load volume '${file.name}': ${err.message || err}`;
+        setElementText("scene-title", errMsg);
+        showExplorerError(errMsg);
+      } finally {
+        URL.revokeObjectURL(blobUrl);
       }
     }
 
     function setupDragAndDrop() {
-      const container = document.getElementById("canvas-container");
-      if (!container) return;
-      container.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        container.classList.add("drag-hover");
-      });
-      container.addEventListener("dragleave", () => {
-        container.classList.remove("drag-hover");
-      });
-      container.addEventListener("drop", async (e) => {
-        e.preventDefault();
-        container.classList.remove("drag-hover");
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          await handleLocalFileObject(e.dataTransfer.files[0]);
-        }
+      const dropTargets = [document.getElementById("canvas-container"), document.body].filter(Boolean);
+      dropTargets.forEach((target) => {
+        target.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+          if (target.id === "canvas-container") target.classList.add("drag-hover");
+        });
+        target.addEventListener("dragleave", () => {
+          if (target.id === "canvas-container") target.classList.remove("drag-hover");
+        });
+        target.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const container = document.getElementById("canvas-container");
+          if (container) container.classList.remove("drag-hover");
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            closeFileExplorerModal();
+            await handleLocalFileObject(e.dataTransfer.files[0]);
+          }
+        });
       });
     }
 
@@ -1506,6 +1748,7 @@
     function openFileExplorerModal() {
       const modal = document.getElementById("file-explorer-modal");
       if (!modal) return;
+      clearExplorerError();
       updateHostUI();
       modal.style.display = "flex";
       const savedPath = hostPaths[currentHost] || null;
@@ -1515,6 +1758,7 @@
     function closeFileExplorerModal() {
       const modal = document.getElementById("file-explorer-modal");
       if (modal) modal.style.display = "none";
+      clearExplorerError();
       selectedFsEntry = null;
       updateSelectedState();
     }
@@ -1529,8 +1773,9 @@
       const tbody = document.getElementById("fs-entries-body");
       const emptyMsg = document.getElementById("fs-empty-msg");
       const hostDesc = currentHost === "localhost" ? "localhost" : `${currentHost} over SSH`;
+      clearExplorerError();
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#94a3b8;">⏳ Loading directory on <strong>${hostDesc}</strong>...</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:var(--neuri-muted);">Loading directory on <strong>${hostDesc}</strong>...</td></tr>`;
       }
       if (emptyMsg) emptyMsg.style.display = "none";
 
@@ -1563,18 +1808,16 @@
         updateSelectedState();
 
         if (data.error) {
-          if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#ef4444;">⚠️ ${data.error}</td></tr>`;
-          }
+          if (tbody) tbody.innerHTML = "";
+          showExplorerError(data.error, currentHost !== "localhost");
           return;
         }
 
         renderFsEntries();
       } catch (err) {
         console.error("Failed to load directory:", err);
-        if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:24px; color:#ef4444;">Error loading directory: ${err.message || err}</td></tr>`;
-        }
+        if (tbody) tbody.innerHTML = "";
+        showExplorerError(`Error loading directory: ${err.message || err}`, currentHost !== "localhost");
       }
     }
 
@@ -1609,12 +1852,12 @@
           tr.classList.add("selected");
         }
 
-        let icon = entry.is_dir ? "📁" : (entry.is_volume ? "🧠" : "📄");
+        let icon = entry.is_dir ? `<span class="fs-kind-tag">[D]</span>` : (entry.is_volume ? `<span class="fs-kind-tag">[V]</span>` : `<span class="fs-kind-tag">[F]</span>`);
         let badge = entry.is_dir ? `<span class="badge-dir">FOLDER</span>` : (entry.is_volume ? `<span class="badge-volume">VOLUME</span>` : "");
         let typeStr = entry.is_dir ? "Directory" : (entry.is_volume ? "Neuro Volume" : "File");
 
         tr.innerHTML = `
-          <td>${icon} ${entry.name} ${badge}</td>
+          <td>${icon}${entry.name} ${badge}</td>
           <td>${typeStr}</td>
           <td>${entry.size_formatted || "--"}</td>
           <td>${entry.modified || "--"}</td>
@@ -1641,7 +1884,7 @@
     async function onRowDoubleClick(entry) {
       if (entry.is_dir) {
         loadDirectoryListing(entry.path);
-      } else if (entry.is_volume) {
+      } else {
         await openVolumePath(entry.path);
       }
     }
@@ -1649,8 +1892,9 @@
     function updateSelectedState() {
       const label = document.getElementById("selected-file-label");
       const btn = document.getElementById("btn-confirm-open");
-      if (selectedFsEntry && selectedFsEntry.is_volume) {
-        if (label) label.innerHTML = `Selected: <strong>${selectedFsEntry.name}</strong> (${selectedFsEntry.size_formatted})`;
+      if (selectedFsEntry && !selectedFsEntry.is_dir) {
+        const sizeLabel = selectedFsEntry.size_formatted ? ` (${selectedFsEntry.size_formatted})` : "";
+        if (label) label.innerHTML = `Selected: <strong>${selectedFsEntry.name}</strong>${sizeLabel}`;
         if (btn) btn.disabled = false;
       } else {
         if (label) label.innerHTML = `Selected: <em>None</em>`;
@@ -1663,33 +1907,35 @@
       await openVolumePath(selectedFsEntry.path);
     }
 
-    async function openVolumePath(filePath) {
+    async function openVolumePath(filePath, hostOverride = null) {
       const btn = document.getElementById("btn-confirm-open");
+      const targetHost = hostOverride || currentHost || "localhost";
+      clearExplorerError();
       if (btn) {
-        btn.innerHTML = currentHost === "localhost" ? "⏳ Loading..." : `⏳ Staging from ${currentHost}...`;
+        btn.innerHTML = targetHost === "localhost" ? "Loading..." : `Staging from ${targetHost}...`;
         btn.disabled = true;
       }
       try {
         const res = await fetch("/api/fs/open", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: filePath, host: currentHost })
+          body: JSON.stringify({ path: filePath, host: targetHost })
         });
         if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
         const data = await res.json();
         if (data.status === "ok") {
-          closeFileExplorerModal();
           await applyLoadedVolume(data);
+          closeFileExplorerModal();
         } else {
-          alert(`Error opening volume: ${data.message || "Unknown error"}`);
+          showExplorerError(`Error opening volume: ${data.message || "Unknown error"}`);
         }
       } catch (err) {
         console.error("Failed to open volume:", err);
-        alert(`Failed to open volume: ${err.message || err}`);
+        showExplorerError(`Failed to open volume: ${err.message || err}`);
       } finally {
         if (btn) {
           btn.innerHTML = "Open Volume";
-          btn.disabled = false;
+          btn.disabled = !(selectedFsEntry && !selectedFsEntry.is_dir);
         }
       }
     }
@@ -1741,7 +1987,12 @@
     window.addEventListener("message", async (event) => {
       if (!event.data) return;
       if (event.data.type === "NEURI_LOAD_VOLUME" && event.data.volume) {
-        await applyLoadedVolume(event.data.volume);
+        try {
+          await applyLoadedVolume(event.data.volume);
+        } catch (loadErr) {
+          console.error("Failed to apply posted volume:", loadErr);
+          setElementText("scene-title", `Error: ${loadErr.message || loadErr}`);
+        }
       } else if (event.data.type === "NEURI_SET_VIEW" && event.data.mode !== undefined) {
         setViewMode(event.data.mode);
       } else if (event.data.type === "NEURI_RESIZE") {
@@ -1754,6 +2005,19 @@
         await pollScene();
       } else if (event.data.type === "NEURI_LOAD_DEMO") {
         await loadDemoVolume();
+      } else if (event.data.type === "NEURI_APPLY_THEME" && event.data.css_variables) {
+        const root = document.documentElement;
+        Object.entries(event.data.css_variables).forEach(([k, v]) => {
+          root.style.setProperty(k, v);
+        });
+        const bg = event.data.css_variables["--neuri-background"];
+        if (nv && bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+          const r = parseInt(bg.slice(1, 3), 16) / 255.0;
+          const g = parseInt(bg.slice(3, 5), 16) / 255.0;
+          const b = parseInt(bg.slice(5, 7), 16) / 255.0;
+          nv.opts.backColor = [r, g, b, 1.0];
+          if (typeof nv.drawScene === "function") nv.drawScene();
+        }
       }
     });
 

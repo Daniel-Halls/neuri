@@ -88,9 +88,10 @@ def test_installer_creates_directory_structure(tmp_path: Path) -> None:
     rules_dir: Path = target_dir / "rules"
     assert rules_dir.is_dir()
 
-    # Verify themes directory exists and contains high_contrast.toml
+    # Verify themes directory exists and contains neuri.toml & high_contrast.toml
     themes_dir: Path = target_dir / "themes"
     assert themes_dir.is_dir()
+    assert (themes_dir / "neuri.toml").is_file()
     assert (themes_dir / "high_contrast.toml").is_file()
 
     # Verify config and hosts templates

@@ -363,4 +363,4 @@ Specialized subcommands handle diffusion fiber orientation distributions, distan
 
 ---
 
-💡 **Next Step**: Would you like to write a Python or Bash pipeline script to automate any specific task—such as volume-to-surface mapping, spherical mesh resampling, or automated offscreen scene rendering?
+**Next Step**: Would you like to write a Python or Bash pipeline script to automate any specific task—such as volume-to-surface mapping, spherical mesh resampling, or automated offscreen scene rendering?

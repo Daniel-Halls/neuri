@@ -6,15 +6,17 @@ remote SSH directories, and proxies byte-range volume requests.
 """
 
 import json
+import mimetypes
 import os
 import re
+import sys
 import tempfile
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from neuri.core.schemas import NiiVueLayerSpec, NiiVueSceneSpec
 from neuri.viewer.local_explorer import LocalFileExplorer
@@ -78,6 +80,10 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             self._serve_static_index()
+        elif path == "/favicon.ico":
+            self._serve_gui_asset("/assets/neuri_icon.png")
+        elif path.startswith("/assets/"):
+            self._serve_gui_asset(path)
         elif path == "/api/scene":
             self._serve_scene_spec()
         elif path == "/api/scene/selection":
@@ -85,12 +91,8 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         elif path == "/api/hosts":
             self._serve_hosts()
         elif path.startswith("/api/file"):
-            query_params = parse_qs(parsed_url.query)
-            uri_list = query_params.get("uri", [])
-            target_uri: str = uri_list[0] if uri_list else ""
-            if not target_uri and len(path) > len("/api/file/"):
-                target_uri = path[len("/api/file/") :]
-            self._serve_file_stream(target_uri)
+            target_uri: str = self._extract_file_uri(path, parsed_url.query)
+            self._serve_file_stream(target_uri, send_body=True)
         elif path == "/api/fs/list":
             query_params = parse_qs(parsed_url.query)
             path_list = query_params.get("path", [])
@@ -160,8 +162,48 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             return origin_hdr
         return "http://127.0.0.1"
 
+    def _make_explorer(self) -> LocalFileExplorer:
+        """Instantiate LocalFileExplorer anchored to active workspace when set.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            LocalFileExplorer: LocalFileExplorer instance
+                Configured filesystem explorer instance.
+        """
+        session_engine: Any = getattr(self.server, "session_engine", None)
+        ws_dir: Path | None = getattr(session_engine, "_workspace_dir", None)
+        if ws_dir is None:
+            ws_dir = getattr(self.server, "workspace_dir", None)
+        return LocalFileExplorer(default_dir=ws_dir)
+
+    def _extract_file_uri(self, path: str, query: str) -> str:
+        """Extract decoded target file URI or path from an /api/file request.
+
+        Parameters
+        ------------
+        path: str
+            Parsed HTTP request path component.
+        query: str
+            Parsed HTTP query string component.
+
+        Returns
+        --------
+            str: string object
+                Decoded URI or path string requested for streaming.
+        """
+        query_params: dict[str, list[str]] = parse_qs(query)
+        uri_list: list[str] = query_params.get("uri", [])
+        target_uri: str = uri_list[0] if uri_list else ""
+        if not target_uri and len(path) > len("/api/file/"):
+            target_uri = unquote(path[len("/api/file/") :])
+        return target_uri
+
     def is_path_permitted(self, file_path: Path) -> bool:
-        """Verify resolved path resides within configured allowed roots.
+        """Verify resolved path is safe to read or browse on local host.
 
         Parameters
         ------------
@@ -171,26 +213,23 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         Returns
         --------
             bool: boolean object
-                True if path is within an allowed root directory.
+                True if path avoids sensitive system directories and passes
+                any strict allowed-root policy.
         """
-        allowed: list[Path] = getattr(self.server, "allowed_roots", [])
-        if not allowed:
-            allowed = [
-                Path.cwd(),
-                Path(tempfile.gettempdir()),
-                Path.home() / ".neuri",
-            ]
         try:
             resolved_target: Path = file_path.resolve()
-            forbidden_roots = [
+            forbidden_roots: list[Path] = [
                 Path.home() / ".ssh",
                 Path.home() / ".aws",
                 Path.home() / ".gnupg",
                 Path("/etc"),
+                Path("/private/etc"),
+                Path("/var/root"),
+                Path("/System"),
             ]
             for f_root in forbidden_roots:
                 try:
-                    res_f = f_root.resolve()
+                    res_f: Path = f_root.resolve()
                     if (
                         resolved_target == res_f
                         or res_f in resolved_target.parents
@@ -198,6 +237,16 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                         return False
                 except Exception:
                     pass
+            if not getattr(self.server, "restrict_to_allowed_roots", False):
+                return True
+            allowed: list[Path] = getattr(self.server, "allowed_roots", [])
+            if not allowed:
+                allowed = [
+                    Path.cwd(),
+                    Path.home(),
+                    Path(tempfile.gettempdir()),
+                    Path.home() / ".neuri",
+                ]
             for root in allowed:
                 resolved_root: Path = root.resolve()
                 if (
@@ -208,6 +257,30 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         except Exception:
             return False
         return False
+
+    def handle_head(self) -> None:
+        """Handle incoming HTTP HEAD requests for byte-range volume checks.
+
+        Parameters
+        ------------
+        None
+
+        Returns
+        --------
+            None: NoneType object
+                Sends HTTP headers without response body.
+        """
+        parsed_url = urlparse(self.path)
+        path: str = parsed_url.path
+        if path.startswith("/api/file"):
+            target_uri: str = self._extract_file_uri(path, parsed_url.query)
+            self._serve_file_stream(target_uri, send_body=False)
+        elif path in ("/", "/index.html", "/viewer", "/viewer/", "/viewer/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+        else:
+            self.send_error(404, "Not Found")
 
     def handle_options(self) -> None:
         """Handle CORS pre-flight requests from browser clients.
@@ -223,7 +296,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         """
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", self._get_cors_origin())
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
             "Range, Content-Type, Accept, Origin",
@@ -232,6 +305,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
 
     do_GET = handle_get
     do_POST = handle_post
+    do_HEAD = handle_head
     do_OPTIONS = handle_options
 
     def _handle_post_scene(self) -> None:
@@ -321,7 +395,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             None: NoneType object
                 Sends JSON host list response.
         """
-        explorer: LocalFileExplorer = LocalFileExplorer()
+        explorer: LocalFileExplorer = self._make_explorer()
         hosts_info: dict[str, Any] = explorer.get_available_hosts()
         payload_bytes: bytes = json.dumps(hosts_info).encode("utf-8")
         self.send_response(200)
@@ -460,7 +534,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                 self.send_error(403, f"Access denied: {dir_path}")
                 return
 
-        explorer: LocalFileExplorer = LocalFileExplorer()
+        explorer: LocalFileExplorer = self._make_explorer()
         listing: dict[str, Any] = explorer.list_directory(
             dir_path=dir_path, host=host
         )
@@ -483,7 +557,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             None: NoneType object
                 Sends JSON response with selection outcome.
         """
-        explorer: LocalFileExplorer = LocalFileExplorer()
+        explorer: LocalFileExplorer = self._make_explorer()
         outcome: dict[str, Any] = explorer.pick_file_dialog()
         status: str = outcome.get("status", "canceled")
         resp_data: dict[str, Any]
@@ -550,7 +624,7 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                     "scene": scene.model_dump(),
                 }
             else:
-                explorer: LocalFileExplorer = LocalFileExplorer()
+                explorer: LocalFileExplorer = self._make_explorer()
                 try:
                     staged_path: Path = explorer.stage_remote_volume(
                         host=req_host, remote_path=target_path_str
@@ -657,6 +731,55 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def _serve_gui_asset(self, req_path: str) -> None:
+        """Serve shared static image assets from the GUI static directory.
+
+        Parameters
+        ------------
+        req_path: str
+            URL path beginning with '/assets/'.
+
+        Returns
+        --------
+            None: NoneType object
+                Sends static asset bytes or 404 if missing.
+        """
+        rel_path: str = req_path.lstrip("/")
+        meipass: Any = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            assets_root: Path = (
+                Path(str(meipass))
+                / "neuri"
+                / "gui"
+                / "static"
+                / "assets"
+            )
+        else:
+            assets_root = (
+                Path(__file__).resolve().parent.parent
+                / "gui"
+                / "static"
+                / "assets"
+            )
+        assets_root = assets_root.resolve()
+        clean_sub: str = (
+            rel_path[len("assets/") :]
+            if rel_path.startswith("assets/")
+            else rel_path
+        )
+        target: Path = (assets_root / clean_sub).resolve()
+        if not target.is_file() or not target.is_relative_to(assets_root):
+            self.send_error(404, "Asset Not Found")
+            return
+
+        mime_type, _ = mimetypes.guess_type(str(target))
+        content: bytes = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", mime_type or "application/octet-stream")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
     def _serve_scene_spec(self) -> None:
         """Return the currently active declarative scene specification as JSON.
 
@@ -686,13 +809,15 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload_bytes)
 
-    def _serve_file_stream(self, uri: str) -> None:
+    def _serve_file_stream(self, uri: str, send_body: bool = True) -> None:
         """Stream local or staged neuroimaging volume bytes with Range support.
 
         Parameters
         ------------
         uri: str
             Raw URI or local file path string.
+        send_body: bool
+            Whether to write binary file payload after headers. Defaults to True.
 
         Returns
         --------
@@ -701,7 +826,9 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
         """
         clean_path_str: str = uri
         if clean_path_str.startswith("file://"):
-            clean_path_str = clean_path_str[7:]
+            clean_path_str = unquote(urlparse(clean_path_str).path)
+        elif "%" in clean_path_str and not Path(clean_path_str).exists():
+            clean_path_str = unquote(clean_path_str)
 
         local_file: Path = Path(clean_path_str).resolve()
         if not self.is_path_permitted(local_file):
@@ -719,8 +846,6 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             return
 
         mime_type: str = "application/octet-stream"
-        if local_file.name.lower().endswith(".gz"):
-            mime_type = "application/gzip"
 
         cors_origin: str = self._get_cors_origin()
         range_hdr: str | None = self.headers.get("Range")
@@ -776,6 +901,9 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.end_headers()
 
+            if not send_body:
+                return
+
             with local_file.open("rb") as f:
                 f.seek(start)
                 left: int = length
@@ -783,7 +911,10 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
                     chunk: bytes = f.read(min(65536, left))
                     if not chunk:
                         break
-                    self.wfile.write(chunk)
+                    try:
+                        self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
                     left -= len(chunk)
         else:
             self.send_response(200, "OK")
@@ -797,12 +928,18 @@ class NiiVueBridgeHandler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             self.end_headers()
 
+            if not send_body:
+                return
+
             with local_file.open("rb") as f:
                 while True:
                     chunk = f.read(65536)
                     if not chunk:
                         break
-                    self.wfile.write(chunk)
+                    try:
+                        self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
 
     def log_message(self, format: str, *args: Any) -> None:
         """Suppress standard logging to stderr.

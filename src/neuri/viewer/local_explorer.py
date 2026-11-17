@@ -42,12 +42,26 @@ class LocalFileExplorer:
     VOLUME_EXTENSIONS: tuple[str, ...] = (
         ".nii",
         ".nii.gz",
+        ".nii.zst",
         ".mgh",
         ".mgz",
         ".dcm",
+        ".ima",
         ".dim",
         ".img",
         ".hdr",
+        ".nrrd",
+        ".nhdr",
+        ".brik",
+        ".brik.gz",
+        ".head",
+        ".gii",
+        ".mz3",
+        ".vtk",
+        ".vtp",
+        ".stl",
+        ".obj",
+        ".ply",
     )
 
     def __init__(
@@ -556,11 +570,8 @@ class LocalFileExplorer:
             return self._pick_file_tkinter()
 
         apple_script: str = (
-            'tell application (path to frontmost application as text)\n'
-            '    set theFile to choose file with prompt '
-            '"Select Neuroimaging Volume (.nii, .nii.gz, .mgz, .dcm)"\n'
-            'end tell\n'
-            'POSIX path of theFile'
+            'POSIX path of (choose file with prompt '
+            '"Select Neuroimaging Volume (.nii, .nii.gz, .mgz, .dcm)")'
         )
         try:
             res = subprocess.run(
@@ -573,8 +584,16 @@ class LocalFileExplorer:
                 selected_path: str = res.stdout.strip()
                 if selected_path and Path(selected_path).is_file():
                     return {"status": "ok", "path": selected_path}
-            if "User canceled" in res.stderr or res.returncode != 0:
+            stderr_lower: str = res.stderr.lower()
+            if "user canceled" in stderr_lower or "(-128)" in stderr_lower:
                 return {"status": "canceled"}
+            tk_res: dict[str, Any] = self._pick_file_tkinter()
+            if tk_res.get("status") == "ok":
+                return tk_res
+            err_msg: str = res.stderr.strip() or tk_res.get(
+                "message", "macOS file picker failed"
+            )
+            return {"status": "unsupported", "message": err_msg}
         except subprocess.TimeoutExpired:
             return {"status": "canceled", "message": "Dialog timed out"}
         except Exception as err:
@@ -582,7 +601,6 @@ class LocalFileExplorer:
                 "status": "unsupported",
                 "message": f"macOS dialog error: {err}",
             }
-        return {"status": "canceled"}
 
     def _pick_file_linux(self) -> dict[str, Any]:
         """Open native Linux file selection dialog using zenity, kdialog, or tkinter.

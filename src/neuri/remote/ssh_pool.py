@@ -7,6 +7,8 @@ port tunnels across remote compute workstations and HPC login nodes.
 import asyncio
 from pathlib import Path
 
+from neuri.core.async_utils import cleanup_subprocess
+
 
 class SSHControlMasterPool:
     """Manages persistent SSH ControlMaster sockets and command execution.
@@ -135,20 +137,21 @@ class SSHControlMasterPool:
             f"ControlPath={self.get_control_path_pattern()}",
             host,
         ]
+        proc_check: asyncio.subprocess.Process | None = None
         try:
-            proc_check: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_exec(
-                    *check_cmd,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
+            proc_check = await asyncio.create_subprocess_exec(
+                *check_cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
             await asyncio.wait_for(proc_check.wait(), timeout=1.5)
             if proc_check.returncode == 0:
                 return True
         except Exception:
             pass
+        finally:
+            await cleanup_subprocess(proc_check)
 
         # 2. Not running, establish master in background with -fN
         warm_args: list[str] = [
@@ -182,20 +185,21 @@ class SSHControlMasterPool:
             "ServerAliveCountMax=3",
             host,
         ]
+        proc_warm: asyncio.subprocess.Process | None = None
         try:
-            proc_warm: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_exec(
-                    *warm_args,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
+            proc_warm = await asyncio.create_subprocess_exec(
+                *warm_args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
             await asyncio.wait_for(proc_warm.wait(), timeout=timeout_seconds)
             is_warmed: bool = proc_warm.returncode == 0
             return is_warmed
         except Exception:
             return False
+        finally:
+            await cleanup_subprocess(proc_warm)
 
     async def run_command_bytes(
         self,
@@ -225,14 +229,13 @@ class SSHControlMasterPool:
         )
         full_cmd: list[str] = [*base_ssh, cmd_str]
 
+        process: asyncio.subprocess.Process | None = None
         try:
-            process: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_exec(
-                    *full_cmd,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
+            process = await asyncio.create_subprocess_exec(
+                *full_cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=timeout_seconds
@@ -247,6 +250,8 @@ class SSHControlMasterPool:
         except Exception as exc:
             err_msg = f"SSH execution failed: {exc}".encode("utf-8")
             return (-1, b"", err_msg)
+        finally:
+            await cleanup_subprocess(process)
 
     async def run_command(
         self,

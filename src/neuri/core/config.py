@@ -60,7 +60,7 @@ class WorkspaceConfig(BaseModel):
     remote_bids_root: str | None
         Remote root URI for BIDS dataset. Defaults to None.
     theme: str
-        Active terminal color theme name. Defaults to 'high_contrast'.
+        Active terminal color theme name. Defaults to 'neuri'.
     default_harness: str
         Default AI harness applied across all roles. Defaults to 'agy'.
     default_model: str | None
@@ -85,8 +85,11 @@ class WorkspaceConfig(BaseModel):
         description="Remote root URI for BIDS dataset, e.g. host:///path/to/bids",
     )
     theme: str = Field(
-        default="high_contrast",
-        description="Active terminal color theme name (e.g. 'high_contrast', 'dark')",
+        default="neuri",
+        description=(
+            "Active terminal color theme name (e.g. 'neuri', 'dark', "
+            "'high_contrast')"
+        ),
     )
     default_harness: str = Field(
         default="agy",

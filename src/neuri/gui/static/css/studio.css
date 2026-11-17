@@ -5,23 +5,23 @@
    ===================================================================== */
 
 :root {
-  --neuri-background: #0b0f17;
-  --neuri-foreground: #f1f5f9;
-  --neuri-surface: #1e293b;
-  --neuri-surface-elevated: #26334d;
-  --neuri-panel: #111827;
-  --neuri-border: #334155;
-  --neuri-primary: #38bdf8;
-  --neuri-secondary: #a78bfa;
-  --neuri-accent: #22d3ee;
-  --neuri-warning: #f59e0b;
-  --neuri-error: #f43f5e;
-  --neuri-success: #10b981;
-  --neuri-muted: #64748b;
-  --neuri-selection-bg: #1e3a5f;
-  --neuri-selection-fg: #38bdf8;
-  --neuri-tokens: #fbbf24;
-  --neuri-cost: #c084fc;
+  --neuri-background: #0c1115;
+  --neuri-foreground: #e6e8eb;
+  --neuri-surface: #141b21;
+  --neuri-surface-elevated: #1b242c;
+  --neuri-panel: #10161b;
+  --neuri-border: #212b34;
+  --neuri-primary: #e6e8eb;
+  --neuri-secondary: #9aa5b1;
+  --neuri-accent: #cbd5e1;
+  --neuri-warning: #d4a853;
+  --neuri-error: #e06c75;
+  --neuri-success: #4ade80;
+  --neuri-muted: #6e7b88;
+  --neuri-selection-bg: #1e2a35;
+  --neuri-selection-fg: #f3f5f7;
+  --neuri-tokens: #d4a853;
+  --neuri-cost: #9aa5b1;
 
   --neuri-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
   --neuri-font-mono: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
@@ -88,6 +88,13 @@ body {
   font-family: var(--neuri-font-mono);
   font-weight: 800;
   font-size: 1.1rem;
+}
+
+.brand-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
 }
 
 .brand-title {
@@ -212,7 +219,7 @@ body {
 .rail-btn {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--neuri-muted);
@@ -225,16 +232,31 @@ body {
   position: relative;
 }
 
+.rail-btn-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+  opacity: 0.62;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
 .rail-btn:hover {
   background: var(--neuri-surface);
   color: var(--neuri-foreground);
   border-color: var(--neuri-border);
 }
 
+.rail-btn:hover .rail-btn-icon,
+.rail-btn.active .rail-btn-icon {
+  opacity: 1;
+}
+
 .rail-btn.active {
   background: var(--neuri-surface-elevated);
   color: var(--neuri-primary);
-  border-color: var(--neuri-primary);
+  border-color: var(--neuri-accent);
 }
 
 .rail-badge {
@@ -256,6 +278,10 @@ body {
   display: flex;
   flex-direction: column;
   background-color: var(--neuri-background);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
   border-right: 1px solid var(--neuri-border);
   position: relative;
   overflow: hidden;
@@ -431,6 +457,42 @@ body {
 
 .welcome-cmd:hover {
   text-decoration: underline;
+}
+
+.welcome-logo-img {
+  height: 22px;
+  width: auto;
+  display: block;
+}
+
+.tab-btn-icon,
+.inline-btn-icon {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.welcome-action-pill {
+  background: var(--neuri-surface-elevated);
+  border: 1px solid var(--neuri-border);
+  color: var(--neuri-primary);
+  border-radius: 4px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.welcome-action-pill:hover {
+  border-color: var(--neuri-accent);
+  background: var(--neuri-selection-bg);
 }
 
 /* Input Container & Stack */
@@ -666,7 +728,11 @@ body {
 #dag-container {
   flex: 1;
   position: relative;
-  background: var(--neuri-background);
+  background-color: var(--neuri-background);
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--neuri-border) 35%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
   overflow: hidden;
 }
 
@@ -765,7 +831,7 @@ body {
 #pane-niivue {
   flex: 1;
   position: relative;
-  background: #0b0f17;
+  background: var(--neuri-background);
   overflow: hidden;
   padding: 0;
 }
@@ -775,7 +841,7 @@ body {
   height: 100%;
   border: none;
   display: block;
-  background: #0b0f17;
+  background: var(--neuri-background);
 }
 
 /* 3. Compute Fleet Viewport */

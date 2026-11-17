@@ -12,6 +12,7 @@ import time
 from typing import Any
 import uuid
 
+from neuri.core.async_utils import cleanup_subprocess
 from neuri.core.config import NeuriConfig
 from neuri.remote.monitor import RemoteHostMonitor
 from neuri.remote.ssh_pool import SSHControlMasterPool
@@ -229,12 +230,9 @@ class PersistentShellSession:
 
             except asyncio.TimeoutError:
                 elapsed_t = time.monotonic() - start_t
-                if self._process is not None:
-                    try:
-                        self._process.kill()
-                    except Exception:
-                        pass
-                    self._process = None
+                proc_to_clean: asyncio.subprocess.Process | None = self._process
+                self._process = None
+                await cleanup_subprocess(proc_to_clean)
                 return (
                     -2,
                     f"Command timed out after {timeout_seconds:.1f}s",
@@ -243,12 +241,9 @@ class PersistentShellSession:
 
             except Exception as exc:
                 elapsed_t = time.monotonic() - start_t
-                if self._process is not None:
-                    try:
-                        self._process.kill()
-                    except Exception:
-                        pass
-                    self._process = None
+                proc_to_clean = self._process
+                self._process = None
+                await cleanup_subprocess(proc_to_clean)
                 return (-1, f"Session error: {exc}", elapsed_t)
 
     async def close(self) -> None:
@@ -263,17 +258,18 @@ class PersistentShellSession:
             None: NoneType object
                 Terminates subprocess cleanly.
         """
-        if self._process is not None and self._process.returncode is None:
-            try:
-                if self._process.stdin is not None:
-                    self._process.stdin.close()
-                await asyncio.wait_for(self._process.wait(), timeout=1.0)
-            except Exception:
-                try:
-                    self._process.kill()
-                except Exception:
-                    pass
+        proc: asyncio.subprocess.Process | None = self._process
         self._process = None
+        if proc is None:
+            return
+        if proc.returncode is None:
+            try:
+                if proc.stdin is not None and not proc.stdin.is_closing():
+                    proc.stdin.close()
+                await asyncio.wait_for(proc.wait(), timeout=1.0)
+            except Exception:
+                pass
+        await cleanup_subprocess(proc)
 
 
 class ShellCommandExecutor:
@@ -529,14 +525,13 @@ class ShellCommandExecutor:
             ShellExecutionResult: ShellExecutionResult instance
                 Local execution outcome.
         """
+        proc: asyncio.subprocess.Process | None = None
         try:
-            proc: asyncio.subprocess.Process = (
-                await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(self._workspace_dir),
-                )
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._workspace_dir),
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout_seconds
@@ -573,6 +568,8 @@ class ShellCommandExecutor:
                 stderr=f"Local execution failed: {exc}",
                 duration_seconds=elapsed,
             )
+        finally:
+            await cleanup_subprocess(proc)
 
     async def _execute_remote(
         self,
@@ -664,9 +661,12 @@ class ShellCommandExecutor:
             None: NoneType object
                 Closes all managed subprocesses.
         """
-        for sess in self._persistent_sessions.values():
-            await sess.close()
+        sessions: list[PersistentShellSession] = list(
+            self._persistent_sessions.values()
+        )
         self._persistent_sessions.clear()
+        for sess in sessions:
+            await sess.close()
 
 
 __all__: list[str] = [

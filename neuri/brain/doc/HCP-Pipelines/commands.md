@@ -186,4 +186,4 @@ MSMAll calculates multimodal cortical surface registration using resting-state f
 
 *Note on Source Coverage:* The notebook sources detail the complete option structures for `PostFreeSurferPipeline.sh`, `FreeSurferPipeline.sh`, `FreeSurfer2CaretConvertAndRegisterNonlinear.sh`, and the full QuNex parameter interface wrappers (`hcp_*`) which expose all HCP pipeline options. Internal sub-script helper arguments for `PreFreeSurferPipeline.sh` and `fMRIVolumePipeline.sh` are documented primarily via these QuNex mapping interfaces.
 
-🧠 Would you like me to generate a tailored reference document artifact or build a custom shell wrapper script for any of these specific pipelines?
+Would you like me to generate a tailored reference document artifact or build a custom shell wrapper script for any of these specific pipelines?

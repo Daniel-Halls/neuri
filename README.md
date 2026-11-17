@@ -63,7 +63,7 @@ uv run neuri
 
 #### What You Will See in the Interface:
 1. **Header & Workspace Banner:** Displays the active working directory, global workspace indicator (`[Global]`), and the default harness.
-2. **Scrollable Chat Canvas:** Renders user turns, structured assistant responses in GitHub-flavored markdown, and collapsible `🧠 Reasoning Trace` drawers containing raw thinking steps from sub-agents.
+2. **Scrollable Chat Canvas:** Renders user turns, structured assistant responses in GitHub-flavored markdown, and collapsible `Reasoning Trace` drawers containing raw thinking steps from sub-agents.
 3. **Prompt Input Box:** An interactive input area (`> Type a research prompt or /command...`) supporting both natural language instructions and slash commands.
 4. **Live Telemetry Footer:** Real-time status bar showing active harness backend, token consumption tally, and estimated cumulative USD cost.
 

@@ -94,4 +94,4 @@ run_fastsurfer.sh --sid <subjectID> --sd <subjects_dir> --t1 <T1_input> [OPTIONS
 | **`--base`** | *(None)* | Longitudinal template (base) processing. Requires prior preparation via `recon-surf/long_prepare_template.sh`. No T1/T2 passed explicitly [5]. |
 | **`--long`** | `<baseid>` | Longitudinal time-point processing relative to base subject `<baseid>` [5]. |
 
-🧠 Would you like me to generate a complete Snakemake rule or shell workflow wrapper for running FastSurfer across multiple subjects?
+Would you like me to generate a complete Snakemake rule or shell workflow wrapper for running FastSurfer across multiple subjects?

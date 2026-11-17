@@ -493,7 +493,7 @@ export class NeuriApp {
         }
       } else {
         const errData = await res.json().catch(() => ({}));
-        this.chatStream.finalizeLiveCard(`⚠️ Server Error: ${errData.error || res.statusText}`);
+        this.chatStream.finalizeLiveCard(`Server Error: ${errData.error || res.statusText}`);
         this.setStatus("ERROR", "error");
       }
     } catch (err) {

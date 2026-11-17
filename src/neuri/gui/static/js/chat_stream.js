@@ -28,11 +28,14 @@ export class ChatStream {
     card.style.borderLeft = "4px solid var(--neuri-primary)";
     card.innerHTML = `
       <div class="card-header">
-        <span class="card-role-assistant">&gt;&gt; NEURI - Neuroscience Meta-Harness</span>
+        <span class="card-role-assistant" style="display:inline-flex; align-items:center; gap:10px;">
+          <img src="/assets/neuri_logo.png" alt="NEURI" class="welcome-logo-img">
+          <span style="color:var(--neuri-muted); font-weight:500;">Neuroscience Meta-Harness</span>
+        </span>
         <span class="card-time">Workspace: ${workspaceDir || "Active"}</span>
       </div>
       <div class="card-body">
-        <p style="margin-bottom: 8px;">Adaptive multi-modal research cockpit. Execute prompts, inspect DAG workflows, stream 3D neuroimaging, and control compute fleets.</p>
+        <p style="margin-bottom: 8px;">Adaptive multi-modal research cockpit. Execute prompts, inspect job workflows, stream 3D neuroimaging, and control remote machines.</p>
         <table class="welcome-table">
           <thead>
             <tr>
@@ -43,34 +46,34 @@ export class ChatStream {
           </thead>
           <tbody>
             <tr>
-              <td>Natural Language</td>
-              <td>Decompose & execute research DAG</td>
+              <td><button class="welcome-action-pill" data-tab="chat"><img src="/assets/buttons/r.png" alt="[R]" class="inline-btn-icon"> Research Stream</button></td>
+              <td>Decompose &amp; execute research workflow</td>
               <td><em>Enter any instruction below</em></td>
             </tr>
             <tr>
-              <td><button class="welcome-action-pill" data-tab="dag" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); color:var(--neuri-primary); border-radius:4px; padding:2px 8px; cursor:pointer; font-weight:600;">🕸️ DAG Flow</button></td>
+              <td><button class="welcome-action-pill" data-tab="dag"><img src="/assets/buttons/j.png" alt="[J]" class="inline-btn-icon"> Job Inspector</button></td>
               <td>Preview execution plan without running</td>
               <td><span class="welcome-cmd" data-cmd="/plan ">/plan &lt;instruction&gt;</span></td>
             </tr>
             <tr>
-              <td><button class="welcome-action-pill" data-tab="niivue" style="background:var(--neuri-surface); border:1px solid var(--neuri-border); color:var(--neuri-accent); border-radius:4px; padding:2px 8px; cursor:pointer; font-weight:600;">🧠 3D Visualization</button></td>
+              <td><button class="welcome-action-pill" data-tab="niivue"><img src="/assets/buttons/v.png" alt="[V]" class="inline-btn-icon"> 3D Visualization</button></td>
               <td>Inspect NIfTI / GIfTI in WebGL2</td>
               <td><span class="welcome-cmd" data-cmd="/view " data-tab="niivue">/view [path]</span></td>
             </tr>
             <tr>
-              <td>Status & Jobs</td>
-              <td>Inspect nodes, artifacts, and batch queues</td>
-              <td><span class="welcome-cmd" data-cmd="/status">/status</span> or <span class="welcome-cmd" data-cmd="/jobs">/jobs</span></td>
-            </tr>
-            <tr>
-              <td>Fleet Shell</td>
+              <td><button class="welcome-action-pill" data-tab="fleet"><img src="/assets/buttons/m.png" alt="[M]" class="inline-btn-icon"> Remote Machines</button></td>
               <td>Run bash command locally or on cluster</td>
               <td><span class="welcome-cmd" data-cmd="!ls -la">!&lt;cmd&gt;</span> or <strong>Ctrl+S</strong></td>
             </tr>
             <tr>
-              <td>Command Help</td>
-              <td>List all interactive slash commands</td>
-              <td><span class="welcome-cmd" data-cmd="/help">/help</span></td>
+              <td><button class="welcome-action-pill" data-tab="qc"><img src="/assets/buttons/b.png" alt="[B]" class="inline-btn-icon"> BIDS &amp; QC</button></td>
+              <td>Validate cohort structure and inspect jobs</td>
+              <td><span class="welcome-cmd" data-cmd="/bids validate">/bids validate</span> or <span class="welcome-cmd" data-cmd="/status">/status</span></td>
+            </tr>
+            <tr>
+              <td><button class="welcome-action-pill" data-tab="brain"><img src="/assets/buttons/n.png" alt="[N]" class="inline-btn-icon"> Neuri Brain</button></td>
+              <td>Search memory vault or list commands</td>
+              <td><span class="welcome-cmd" data-cmd="/brain search ">/brain search</span> or <span class="welcome-cmd" data-cmd="/help">/help</span></td>
             </tr>
           </tbody>
         </table>
@@ -222,7 +225,7 @@ export class ChatStream {
       const host = toolInfo.tool_host || "localhost";
       const status = toolInfo.tool_status || "running";
       const duration = toolInfo.duration_ms ? `${toolInfo.duration_ms}ms` : "";
-      badge.innerHTML = `<span>&#9881; ${this.escapeHtml(toolInfo.tool_name)}</span> &middot; <span style="color:var(--neuri-muted)">${host}</span> &middot; <span style="color:var(--neuri-primary)">${status}</span> ${duration}`;
+      badge.innerHTML = `<span>&gt; ${this.escapeHtml(toolInfo.tool_name)}</span> &middot; <span style="color:var(--neuri-muted)">${host}</span> &middot; <span style="color:var(--neuri-primary)">${status}</span> ${duration}`;
       toolsBox.appendChild(badge);
       this.scrollToBottom();
     }

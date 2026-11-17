@@ -6,7 +6,7 @@ interface and future Desktop/Web GUIs.
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
 import json
 from pathlib import Path
 import shutil
@@ -26,6 +26,7 @@ from neuri.brain import (
     BrainStats,
     ObservationCategory,
 )
+from neuri.core.async_utils import run_coro_cleanly
 from neuri.core.blackboard import Blackboard
 from neuri.core.config import NeuriConfig
 from neuri.core.installer import NeuriInstaller
@@ -188,6 +189,50 @@ class SlashCommandRouter:
             else PathResolver.get_default_skills_index()
         )
         self._last_planned_workflow_id: str | None = None
+        self._viewer_scene_handler: Callable[[NiiVueSceneSpec], None] | None = (
+            None
+        )
+
+    def set_viewer_scene_handler(
+        self,
+        handler: Callable[[NiiVueSceneSpec], None] | None,
+    ) -> None:
+        """Register callback receiving NiiVue scenes pushed by /view.
+
+        Parameters
+        ------------
+        handler: Callable[[NiiVueSceneSpec], None] | None
+            Callback invoked with new NiiVueSceneSpec instances or None.
+
+        Returns
+        --------
+            None: NoneType object
+                Stores active scene callback handler.
+        """
+        self._viewer_scene_handler = handler
+
+    def _publish_viewer_scene(
+        self,
+        scene: NiiVueSceneSpec,
+        bridge: Any,
+    ) -> None:
+        """Push a NiiVue scene to standalone bridge and embedded GUI handler.
+
+        Parameters
+        ------------
+        scene: NiiVueSceneSpec
+            Declarative scene specification to publish.
+        bridge: Any
+            Active NiiVueBridge controller instance.
+
+        Returns
+        --------
+            None: NoneType object
+                Synchronizes bridge and any attached embedded viewer.
+        """
+        bridge.push_scene(scene)
+        if self._viewer_scene_handler is not None:
+            self._viewer_scene_handler(scene)
 
     def is_slash_command(self, text: str) -> bool:
         """Check if an input string is formatted as a slash command.
@@ -1109,15 +1154,7 @@ class SlashCommandRouter:
             Any: Any object
                 Result returned by the coroutine.
         """
-        try:
-            asyncio.get_running_loop()
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(asyncio.run, coro)
-                result = future.result()
-                return result
-        except RuntimeError:
-            sync_res = asyncio.run(coro)
-            return sync_res
+        return run_coro_cleanly(coro)
 
     def _handle_remote(self, args: list[str]) -> SlashCommandResult:
         """Inspect and manage configured remote compute hosts.
@@ -1493,9 +1530,28 @@ class SlashCommandRouter:
             target_host = args[0]
             cmd_tokens = args[1:]
 
+        async def _execute_and_close() -> ShellExecutionResult:
+            """Execute command on target host and close executor sessions.
+
+            Parameters
+            ------------
+            None
+
+            Returns
+            --------
+                ShellExecutionResult: ShellExecutionResult instance
+                    Execution output, exit code, and timing metadata.
+            """
+            try:
+                return await executor.execute(
+                    command=command_str, host=target_host
+                )
+            finally:
+                await executor.close_all()
+
         command_str: str = " ".join(cmd_tokens)
         res: ShellExecutionResult = self._run_sync_coroutine(
-            executor.execute(command=command_str, host=target_host)
+            _execute_and_close()
         )
         card_md: str = executor.format_markdown_card(res)
 
@@ -2231,9 +2287,9 @@ class SlashCommandRouter:
         if clean_args and clean_args[0].lower() == "compare" and len(clean_args) >= 3:
             fixed_uri: str = clean_args[1].strip()
             moving_uri: str = clean_args[2].strip()
-            scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
+            comp_scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
             comp_spec: NiiVueSceneSpec = NiiVueSceneSpec(
-                scene_id=scene_id,
+                scene_id=comp_scene_id,
                 title=(
                     f"Neuri Compare: {Path(fixed_uri).name} vs "
                     f"{Path(moving_uri).name}"
@@ -2252,9 +2308,9 @@ class SlashCommandRouter:
                 ],
                 slice_type="multiplanar",
             )
-            bridge.push_scene(comp_spec)
+            self._publish_viewer_scene(comp_spec, bridge)
 
-            if not no_open:
+            if not no_open and self._viewer_scene_handler is None:
                 try:
                     webbrowser.open(viewer_url)
                 except Exception:
@@ -2276,6 +2332,7 @@ class SlashCommandRouter:
                     "viewer_url": viewer_url,
                     "fixed_uri": fixed_uri,
                     "moving_uri": moving_uri,
+                    "scene": comp_spec.model_dump(),
                 },
             )
 
@@ -2300,10 +2357,11 @@ class SlashCommandRouter:
             except Exception:
                 pass
 
+        published_spec: NiiVueSceneSpec | None = None
         if target_uri:
-            scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
-            spec: NiiVueSceneSpec = NiiVueSceneSpec(
-                scene_id=scene_id,
+            view_scene_id: str = f"scene_{uuid.uuid4().hex[:8]}"
+            published_spec = NiiVueSceneSpec(
+                scene_id=view_scene_id,
                 title=f"Neuri: {Path(target_uri).name}",
                 volumes=[
                     NiiVueLayerSpec(
@@ -2313,15 +2371,15 @@ class SlashCommandRouter:
                     )
                 ],
             )
-            bridge.push_scene(spec)
+            self._publish_viewer_scene(published_spec, bridge)
 
-        if not no_open:
+        if not no_open and self._viewer_scene_handler is None:
             try:
                 webbrowser.open(viewer_url)
             except Exception:
                 pass
 
-        if target_uri:
+        if target_uri and published_spec is not None:
             msg: str = (
                 f"### NiiVue WebGL2 Visualization Bridge\n\n"
                 f"- **Viewer URL:** [{viewer_url}]({viewer_url})\n"
@@ -2334,7 +2392,11 @@ class SlashCommandRouter:
                 command="/view",
                 success=True,
                 markdown_output=msg,
-                data={"viewer_url": viewer_url, "target_uri": target_uri},
+                data={
+                    "viewer_url": viewer_url,
+                    "target_uri": target_uri,
+                    "scene": published_spec.model_dump(),
+                },
             )
 
         msg_default: str = (

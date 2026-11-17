@@ -471,9 +471,12 @@ class NeuriSessionEngine:
         executor: ShellCommandExecutor = ShellCommandExecutor(
             workspace_dir=self._workspace_dir
         )
-        res: ShellExecutionResult = await executor.execute(
-            command=command, host=host
-        )
+        try:
+            res: ShellExecutionResult = await executor.execute(
+                command=command, host=host
+            )
+        finally:
+            await executor.close_all()
         card_md: str = executor.format_markdown_card(res)
 
         assistant_turn: ChatTurn = ChatTurn(

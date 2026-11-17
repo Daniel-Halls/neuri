@@ -176,7 +176,7 @@ class NeuriInstaller:
         config_file: Path = self._target_dir / "config.toml"
         if not config_file.exists():
             config_file.write_text(
-                "[project]\nname = \"global\"\ntheme = \"high_contrast\"\n",
+                '[project]\nname = "global"\ntheme = "neuri"\n',
                 encoding="utf-8",
             )
 

@@ -5,7 +5,6 @@ Typing `neuri` launches the interactive Textual terminal chat interface.
 Flags `-p` / `--print` support headless execution for scripting and pipelines.
 """
 
-import asyncio
 from pathlib import Path
 import sys
 from typing import Annotated, Any
@@ -14,6 +13,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 import typer
 
+from neuri.core.async_utils import run_coro_cleanly
 from neuri.core.installer import NeuriInstaller
 from neuri.core.schemas import ChatTurn, SessionEvent, SessionEventType
 from neuri.core.session import NeuriSessionEngine
@@ -326,7 +326,7 @@ class NeuriCLI:
                 if delta:
                     if not is_in_thinking:
                         self.console.print(
-                            "[dim italic]🧠 Reasoning: [/dim italic]",
+                            "[dim italic]Reasoning: [/dim italic]",
                             end="",
                         )
                         is_in_thinking = True
@@ -352,12 +352,12 @@ class NeuriCLI:
             elif ev.event_type == SessionEventType.CIRCUIT_BREAKER_TRIGGERED:
                 reason: str = str(ev.payload.get("reason", ""))
                 self.console.print(
-                    f"\n[bold red]⚠ Circuit Breaker Tripped:[/bold red] "
+                    f"\n[bold red][!] Circuit Breaker Tripped:[/bold red] "
                     f"{reason}"
                 )
 
         engine.subscribe(_on_session_event)
-        turn: ChatTurn = asyncio.run(engine.submit_user_input(prompt))
+        turn: ChatTurn = run_coro_cleanly(engine.submit_user_input(prompt))
 
         if has_streamed_content:
             self.console.print()

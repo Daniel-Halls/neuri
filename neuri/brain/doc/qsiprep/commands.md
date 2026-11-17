@@ -120,4 +120,4 @@ General execution controls, crash handling, and logging verbosity [3, 23]:
 
 ---
 
-🧠 **Next Step**: Would you like to generate a sample configuration file (such as a custom `eddy_config.json` or BIDS filter JSON) to set up a specific dataset pipeline?
+**Next Step**: Would you like to generate a sample configuration file (such as a custom `eddy_config.json` or BIDS filter JSON) to set up a specific dataset pipeline?
