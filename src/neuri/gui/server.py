@@ -5,7 +5,7 @@ and ShellCommandExecutor to serve the 4-zone GUI interface with real-time SSE
 event streaming and full parity with terminal functionality.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 import contextlib
 from datetime import datetime, timezone
 import json
@@ -23,10 +23,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 import uuid
 
+from neuri.core.async_utils import run_coro_cleanly
 from neuri.core.blackboard import Blackboard
 from neuri.core.schemas import (
     ChatTurn,
     NeuriTaskEnvelope,
+    NiiVueSceneSpec,
     SessionEvent,
     SessionEventType,
     TaskEdge,
@@ -115,8 +117,30 @@ class NeuriGUIServer(ThreadingMixIn, NiiVueHTTPServer):
             (Path.home() / ".neuri").resolve(),
         ]
 
-        # Register event forwarder on session engine
+        # Register event and viewer scene forwarders on session engine
         self.session_engine.subscribe(self._on_session_event)
+        slash_router = getattr(self.session_engine, "_slash_router", None)
+        if slash_router is not None and hasattr(
+            slash_router, "set_viewer_scene_handler"
+        ):
+            slash_router.set_viewer_scene_handler(
+                self._set_active_viewer_scene
+            )
+
+    def _set_active_viewer_scene(self, scene: NiiVueSceneSpec) -> None:
+        """Update active NiiVue scene on the Studio HTTP server instance.
+
+        Parameters
+        ------------
+        scene: NiiVueSceneSpec
+            Scene specification produced by /view or viewer actions.
+
+        Returns
+        --------
+            None: NoneType object
+                Stores scene so embedded /api/scene polling updates immediately.
+        """
+        self.active_scene = scene
 
     def _on_session_event(self, event: SessionEvent) -> None:
         """Broadcast session events to all active SSE client queues.
@@ -222,9 +246,13 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
 
         if path in ("/", "/index.html"):
             self._serve_gui_index()
+        elif path == "/splash.html":
+            self._serve_gui_static("/splash.html")
         elif path in ("/viewer", "/viewer/", "/viewer/index.html"):
             self._serve_static_index()
-        elif path.startswith(("/css/", "/js/", "/static/")):
+        elif path == "/favicon.ico":
+            self._serve_gui_static("/assets/neuri_icon.png")
+        elif path.startswith(("/css/", "/js/", "/static/", "/assets/")):
             self._serve_gui_static(path)
         elif path == "/api/v1/events":
             self._handle_sse_stream()
@@ -643,6 +671,21 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         entries: list[str] = list(self.server.history_manager.entries)
         self._send_json_response({"entries": entries})
 
+    def _run_coro_sync(self, coro: Coroutine[Any, Any, Any]) -> Any:
+        """Execute an async coroutine safely from a synchronous HTTP handler.
+
+        Parameters
+        ------------
+        coro: Coroutine[Any, Any, Any]
+            Coroutine to run with clean subprocess and loop teardown.
+
+        Returns
+        --------
+            Any: Any object
+                Result returned by the awaited coroutine.
+        """
+        return run_coro_cleanly(coro)
+
     def _handle_get_machines(self) -> None:
         """Poll machine load, cores, and Slurm jobs across compute fabric.
 
@@ -661,21 +704,12 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         hosts: list[str] = executor.get_available_hosts()
         monitor: RemoteHostMonitor = RemoteHostMonitor()
 
-        import asyncio
-
-        loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         try:
-            asyncio.set_event_loop(loop)
-            machines_data: list[dict[str, Any]] = loop.run_until_complete(
+            machines_data: list[dict[str, Any]] = self._run_coro_sync(
                 monitor.query_all_hosts(hosts=hosts, timeout_seconds=4.0)
             )
         except Exception:
             machines_data = []
-        finally:
-            try:
-                loop.close()
-            except Exception:
-                pass
 
         self._send_json_response({"machines": machines_data})
 
@@ -782,28 +816,19 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
         self.server.history_manager.add_entry(text)
 
         # Run via session engine
-        import asyncio
-
-        loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         try:
-            asyncio.set_event_loop(loop)
-            turn: ChatTurn = loop.run_until_complete(
+            turn: ChatTurn = self._run_coro_sync(
                 self.server.session_engine.submit_user_input(text)
             )
         except Exception as exc:
             self._send_json_response({
                 "turn_id": f"err_{uuid.uuid4().hex[:8]}",
                 "role": "assistant",
-                "content": f"⚠️ **Execution Error**: {exc}",
+                "content": f"**Execution Error**: {exc}",
                 "thinking_trace": None,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             return
-        finally:
-            try:
-                loop.close()
-            except Exception:
-                pass
 
         self._send_json_response({
             "turn_id": turn.turn_id,
@@ -833,27 +858,18 @@ class NeuriGUIHandler(NiiVueBridgeHandler):
             self._send_json_response({"error": "Empty command"}, status=400)
             return
 
-        import asyncio
-
-        loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         try:
-            asyncio.set_event_loop(loop)
-            turn: ChatTurn = loop.run_until_complete(
+            turn: ChatTurn = self._run_coro_sync(
                 self.server.session_engine.execute_shell_command(command, host)
             )
         except Exception as exc:
             self._send_json_response({
                 "turn_id": f"err_{uuid.uuid4().hex[:8]}",
                 "role": "assistant",
-                "content": f"⚠️ **Shell Error**: {exc}",
+                "content": f"**Shell Error**: {exc}",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             return
-        finally:
-            try:
-                loop.close()
-            except Exception:
-                pass
 
         self._send_json_response({
             "turn_id": turn.turn_id,

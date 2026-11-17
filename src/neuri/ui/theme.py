@@ -366,7 +366,7 @@ class NeuriThemeManager:
             Constructed theme manager utility.
     """
 
-    DEFAULT_THEME_NAME: str = "dark"
+    DEFAULT_THEME_NAME: str = "neuri"
 
     def __init__(self, workspace_dir: Path | None = None) -> None:
         """Initialize theme manager with workspace context.
@@ -618,7 +618,7 @@ class NeuriThemeManager:
         Returns
         --------
             str: string object
-                Active theme name (defaults to 'high_contrast').
+                Active theme name (defaults to 'neuri').
         """
         config_paths: list[Path] = []
         if self._workspace_dir is not None:

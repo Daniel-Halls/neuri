@@ -25,6 +25,15 @@ export class StudioTabs {
   }
 
   switchTab(tabId) {
+    if (tabId === "chat") {
+      document.querySelectorAll(".rail-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.getAttribute("data-target") === "chat");
+      });
+      const promptInput = document.getElementById("prompt-input");
+      if (promptInput) promptInput.focus();
+      return;
+    }
+
     this.activeTab = tabId;
 
     // Update tab bar buttons

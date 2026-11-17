@@ -5,7 +5,7 @@
 
 export class ThemeEngine {
   constructor() {
-    this.activeTheme = "dark";
+    this.activeTheme = "neuri";
     this.themes = [];
     this.themeSelectEl = document.getElementById("header-theme-select");
     this.themeBtnEl = document.getElementById("theme-toggle-btn");
@@ -33,7 +33,7 @@ export class ThemeEngine {
       if (!res.ok) return;
       const data = await res.json();
       this.themes = data.themes || [];
-      this.activeTheme = data.active_theme || "dark";
+      this.activeTheme = data.active_theme || "neuri";
       this.populateSelect();
 
       const current = this.themes.find((t) => t.name === this.activeTheme);
@@ -70,6 +70,11 @@ export class ThemeEngine {
       root.style.colorScheme = "dark";
     } else if (vars["--neuri-dark"] === "false") {
       root.style.colorScheme = "light";
+    }
+    // Sync embedded NiiVue viewer if present
+    const nvFrame = document.getElementById("niivue-embedded-viewer");
+    if (nvFrame && nvFrame.contentWindow) {
+      nvFrame.contentWindow.postMessage({ type: "NEURI_APPLY_THEME", css_variables: vars }, "*");
     }
   }
 

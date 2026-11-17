@@ -20,6 +20,7 @@ import time
 from typing import Any
 import uuid
 
+from neuri.core.async_utils import cleanup_subprocess
 from neuri.core.schemas import NeuriTaskEnvelope, NeuriTaskResult, TelemetryEvent
 from neuri.core.telemetry import (
     CircuitBreakerTripped,
@@ -370,6 +371,40 @@ class BaseHarnessAdapter(ABC):
         env["NEURI_AGENT_ROLE"] = envelope.agent_role
         return env
 
+    async def _cleanup_execution_handles(
+        self,
+        process: asyncio.subprocess.Process | None,
+        stdout_task: asyncio.Task[Any] | None,
+        stderr_task: asyncio.Task[Any] | None,
+    ) -> None:
+        """Terminate leftover harness process, cancel stream tasks, close pipes.
+
+        Parameters
+        ------------
+        process: asyncio.subprocess.Process | None
+            Spawned harness subprocess instance.
+        stdout_task: asyncio.Task[Any] | None
+            Task consuming subprocess stdout.
+        stderr_task: asyncio.Task[Any] | None
+            Task consuming subprocess stderr.
+
+        Returns
+        --------
+            None: NoneType object
+                Cleans up subprocess and reader tasks cleanly.
+        """
+        await cleanup_subprocess(process)
+        pending_tasks: list[asyncio.Task[Any]] = [
+            task
+            for task in (stdout_task, stderr_task)
+            if task is not None and not task.done()
+        ]
+        for task in pending_tasks:
+            task.cancel()
+        if pending_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+
     async def execute(
         self,
         envelope: NeuriTaskEnvelope,
@@ -420,6 +455,9 @@ class BaseHarnessAdapter(ABC):
         stderr_lines: list[str] = []
         exit_code: int = -1
         breaker_error: CircuitBreakerTripped | None = None
+        process: asyncio.subprocess.Process | None = None
+        stdout_task: asyncio.Task[Any] | None = None
+        stderr_task: asyncio.Task[Any] | None = None
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -457,10 +495,6 @@ class BaseHarnessAdapter(ABC):
             breaker_error = stdout_task.result()
 
         except asyncio.TimeoutError:
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
             timeout_res: NeuriTaskResult = NeuriTaskResult(
                 node_id=envelope.node_id,
                 success=False,
@@ -503,6 +537,12 @@ class BaseHarnessAdapter(ABC):
                 raw_output="".join(accumulated_output),
             )
             return err_res
+        finally:
+            await self._cleanup_execution_handles(
+                process=process,
+                stdout_task=stdout_task,
+                stderr_task=stderr_task,
+            )
 
         # If circuit breaker was tripped during streaming
         if breaker_error is not None:

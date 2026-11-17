@@ -387,6 +387,25 @@ def test_gui_server_state_and_rest_endpoints(tmp_path: Path) -> None:
         assert status == 200
         assert "text/html" in headers.get("content-type", "")
         assert b"NEURI STUDIO" in body
+        for letter in ("r", "j", "m", "v", "b", "n"):
+            expected_path: bytes = f"/assets/buttons/{letter}.png".encode()
+            assert expected_path in body
+
+        # 1b. GET /assets/* button alphabet, logo, and icon PNGs
+        for asset_path in (
+            "/assets/neuri_logo.png",
+            "/assets/neuri_icon.png",
+            "/assets/buttons/r.png",
+            "/assets/buttons/j.png",
+            "/assets/buttons/m.png",
+            "/assets/buttons/v.png",
+            "/assets/buttons/b.png",
+            "/assets/buttons/n.png",
+        ):
+            a_status, a_headers, a_body = client.request("GET", asset_path)
+            assert a_status == 200, f"Missing asset {asset_path}"
+            assert "image/png" in a_headers.get("content-type", "")
+            assert a_body.startswith(b"\x89PNG\r\n\x1a\n")
 
         # 2. GET /css/studio.css
         status, headers, body = client.request("GET", "/css/studio.css")
@@ -532,6 +551,7 @@ def test_gui_server_state_and_rest_endpoints(tmp_path: Path) -> None:
         status, headers, body = client.request("GET", "/viewer")
         assert status == 200
         assert b"NEURI" in body
+        assert b"/assets/buttons/v.png" in body
         assert b"btn-demo-volume" in body
         assert b"btn-attach-prompt" in body
         assert b"host-select" in body

@@ -75,10 +75,17 @@ def test_theme_manager_lists_and_loads_base_themes(tmp_path: Path) -> None:
     themes: list[NeuriTheme] = mgr.list_available_themes()
 
     theme_names: list[str] = [t.name for t in themes]
+    assert "neuri" in theme_names
     assert "high_contrast" in theme_names
     assert "dark" in theme_names
     assert "monokai" in theme_names
     assert "nord" in theme_names
+
+    # Check default Neuri Grid theme attributes
+    neuri_theme: NeuriTheme | None = mgr.get_theme("neuri")
+    assert neuri_theme is not None
+    assert neuri_theme.background == "#0c1115"
+    assert neuri_theme.foreground == "#e6e8eb"
 
     # Check high contrast attributes
     hc_theme: NeuriTheme | None = mgr.get_theme("high_contrast")
@@ -194,9 +201,9 @@ def test_theme_manager_active_theme_and_config_persistence(
 
     mgr: NeuriThemeManager = NeuriThemeManager(workspace_dir=tmp_path)
 
-    # Initial default should be dark (Obsidian Neuro)
+    # Initial default should be neuri (Neuri Grid)
     initial_theme: str = mgr.get_active_theme_name()
-    assert initial_theme == "dark"
+    assert initial_theme == "neuri"
 
     # Set to monokai and verify persistence
     updated: bool = mgr.set_active_theme("monokai")

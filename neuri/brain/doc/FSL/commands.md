@@ -370,7 +370,7 @@
   * **`--rawphase=<file>`**: Outputs raw phase image [186].
   * **`--slices` / `--force3D`**: 2D slice-wise vs. 3D phase unwrapping flags [186].
 
-💡 **Next Step**: Would you like me to generate a structured reference cheat-sheet or Markdown report of these CLI tools with example pipeline calls for your workspace?
+**Next Step**: Would you like me to generate a structured reference cheat-sheet or Markdown report of these CLI tools with example pipeline calls for your workspace?
 
 ---
 

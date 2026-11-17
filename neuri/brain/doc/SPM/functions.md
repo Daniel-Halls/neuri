@@ -183,4 +183,4 @@
 
 ---
 
-🧠 **Would you like me to build a complete Matlab script using `spm_jobman` to automate a full processing pipeline (preprocessing through GLM estimation) for your fMRI or M/EEG dataset?**
+**Would you like me to build a complete Matlab script using `spm_jobman` to automate a full processing pipeline (preprocessing through GLM estimation) for your fMRI or M/EEG dataset?**
